@@ -1,7 +1,23 @@
 .aider*
 .env
+.env.*
+!.env.example
 build/
 dist/
 .vscode
 .DS_Store
 .dev/
+
+# Local runtime/state
+.recipes_backend_dir
+llama-benchy-intelligence/
+llama-swap.out
+
+# Configuration and secrets
+config.yaml
+config.*.yaml
+!config.example.yaml
+*.local.yaml
+secrets/
+*.pem
+*.key

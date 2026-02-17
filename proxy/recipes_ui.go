@@ -39,6 +39,8 @@ const (
 	trtllmDeploymentGuideURL       = "https://build.nvidia.com/spark/trt-llm/stacked-sparks"
 	recipeMetadataKey              = "recipe_ui"
 	recipeMetadataManagedField     = "managed"
+	nvcrProxyAuthURL              = "https://nvcr.io/proxy_auth?scope=repository:nvidia/tensorrt-llm/release:pull"
+	nvcrTagsListURL               = "https://nvcr.io/v2/nvidia/tensorrt-llm/release/tags/list?n=2000"
 )
 
 var (
@@ -925,7 +927,7 @@ func persistTRTLLMSourceImage(backendDir, image string) error {
 		return nil
 	}
 	tmp := override + ".tmp"
-	if err := os.WriteFile(tmp, []byte(image+"\n"), 0644); err != nil {
+	if err := os.WriteFile(tmp, []byte(image+"\n"), 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, override)
@@ -1006,7 +1008,7 @@ type nvcrTagsResponse struct {
 }
 
 func fetchTRTLLMReleaseTags(ctx context.Context) ([]string, error) {
-	authReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://nvcr.io/proxy_auth?scope=repository:nvidia/tensorrt-llm/release:pull", nil)
+	authReq, err := http.NewRequestWithContext(ctx, http.MethodGet, nvcrProxyAuthURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1027,7 +1029,7 @@ func fetchTRTLLMReleaseTags(ctx context.Context) ([]string, error) {
 		return nil, errors.New("nvcr auth returned empty token")
 	}
 
-	tagsReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://nvcr.io/v2/nvidia/tensorrt-llm/release/tags/list?n=2000", nil)
+	tagsReq, err := http.NewRequestWithContext(ctx, http.MethodGet, nvcrTagsListURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1323,7 +1325,7 @@ func (pm *ProxyManager) persistRecipesBackendOverride(path string) error {
 	}
 
 	tmp := filePath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(path+"\n"), 0644); err != nil {
+	if err := os.WriteFile(tmp, []byte(path+"\n"), 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, filePath)
@@ -1374,7 +1376,7 @@ func copyFileAtomic(src, dst string) error {
 		}
 	}
 	tmp := dst + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0644); err != nil {
+	if err := os.WriteFile(tmp, raw, 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, dst)
@@ -1562,7 +1564,7 @@ func writeConfigRawMap(configPath string, root map[string]any) error {
 	}
 
 	tmp := configPath + ".tmp"
-	if err := os.WriteFile(tmp, rendered, 0644); err != nil {
+	if err := os.WriteFile(tmp, rendered, 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, configPath)

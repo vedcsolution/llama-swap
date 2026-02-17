@@ -234,7 +234,7 @@ func runClusterNodeShell(ctx context.Context, host string, isLocal bool, script 
 			"-o", "BatchMode=yes",
 			"-o", "ConnectTimeout=8",
 			"-o", "ConnectionAttempts=2",
-			"-o", "StrictHostKeyChecking=no",
+			"-o", "StrictHostKeyChecking=accept-new",
 			host,
 			fmt.Sprintf("bash -lc %s", shellQuote(script)),
 		)

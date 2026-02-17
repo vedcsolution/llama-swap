@@ -102,7 +102,7 @@ func (pm *ProxyManager) readConfigEditorState() (configEditorState, error) {
 
 func writeConfigRawFile(configPath string, raw []byte) error {
 	tmp := configPath + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0644); err != nil {
+	if err := os.WriteFile(tmp, raw, 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, configPath)

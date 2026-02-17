@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -65,11 +66,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set default ports.
+	// Set default ports (can be overridden with LLAMA_SWAP_LISTEN).
 	if *listenStr == "" {
 		defaultPort := ":8080"
 		if useTLS {
 			defaultPort = ":8443"
+		}
+		if envListen := strings.TrimSpace(os.Getenv("LLAMA_SWAP_LISTEN")); envListen != "" {
+			defaultPort = envListen
 		}
 		listenStr = &defaultPort
 	}

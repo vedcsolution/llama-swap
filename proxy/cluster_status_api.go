@@ -343,7 +343,7 @@ func probeSSH(parent context.Context, host string, timeout time.Duration) (ok bo
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=5",
 		"-o", "ConnectionAttempts=2",
-		"-o", "StrictHostKeyChecking=no",
+		"-o", "StrictHostKeyChecking=accept-new",
 		host,
 		"true",
 	)
