@@ -2135,9 +2135,16 @@ func persistNVIDIASourceImage(backendDir, image string) error {
 	return os.WriteFile(overrideFile, []byte(strings.TrimSpace(image)), 0644)
 }
 
+// isNVIDIANGCImage checks if an image reference is from NVIDIA NGC Catalog
+func isNVIDIANGCImage(image string) bool {
+	image = strings.TrimSpace(image)
+	// Valid NVIDIA NGC images start with "nvcr.io/nvidia/"
+	return strings.HasPrefix(image, "nvcr.io/nvidia/")
+}
+
 func readDefaultNVIDIASourceImage(backendDir string) string {
 	image := loadNVIDIASourceImage(backendDir)
-	if image != "" {
+	if image != "" && isNVIDIANGCImage(image) {
 		return image
 	}
 	return defaultNVIDIASourceImage
@@ -2298,11 +2305,16 @@ func topNVIDIATags(tags []string, limit int) []string {
 }
 
 func buildNVIDIAImageState(backendDir string) *RecipeBackendNVIDIAImage {
-	defaultImage := readDefaultNVIDIASourceImage(backendDir)
-	selectedImage := resolveNVIDIASourceImage(backendDir, "")
-	if selectedImage == "" {
+	// Default is always the official NVIDIA NGC image
+	defaultImage := defaultNVIDIASourceImage
+
+	// Try to load selected image from file, but validate it's an NVIDIA image
+	selectedImage := loadNVIDIASourceImage(backendDir)
+	if selectedImage == "" || !isNVIDIANGCImage(selectedImage) {
+		// If file doesn't exist or contains invalid image, use default
 		selectedImage = defaultImage
 	}
+
 	state := &RecipeBackendNVIDIAImage{
 		Selected: selectedImage,
 		Default:  defaultImage,
