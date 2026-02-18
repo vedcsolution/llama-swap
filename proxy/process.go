@@ -46,6 +46,18 @@ const (
 	processHealthCheckReadTimeout = 5 * time.Second
 )
 
+var processHealthCheckHTTPClient = &http.Client{
+	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: processHealthCheckDialTimeout,
+		}).DialContext,
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     60 * time.Second,
+	},
+	Timeout: processHealthCheckReadTimeout,
+}
+
 type Process struct {
 	ID           string
 	config       config.ModelConfig
@@ -513,25 +525,12 @@ func (p *Process) stopCommand() {
 
 func (p *Process) checkHealthEndpoint(healthURL string) error {
 
-	client := &http.Client{
-		// wait a short time for a tcp connection to be established
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout: processHealthCheckDialTimeout,
-			}).DialContext,
-		},
-
-		// give a long time to respond to the health check endpoint
-		// after the connection is established. See issue: 276
-		Timeout: processHealthCheckReadTimeout,
-	}
-
 	req, err := http.NewRequest("GET", healthURL, nil)
 	if err != nil {
 		return err
 	}
 
-	resp, err := client.Do(req)
+	resp, err := processHealthCheckHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}

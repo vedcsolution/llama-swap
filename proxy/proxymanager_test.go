@@ -908,7 +908,6 @@ func TestProxyManager_CORSOptionsHandler(t *testing.T) {
 			method:         "OPTIONS",
 			expectedStatus: http.StatusNoContent,
 			expectedHeaders: map[string]string{
-				"Access-Control-Allow-Origin":  "*",
 				"Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 				"Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, X-Requested-With",
 			},
@@ -921,7 +920,6 @@ func TestProxyManager_CORSOptionsHandler(t *testing.T) {
 			},
 			expectedStatus: http.StatusNoContent,
 			expectedHeaders: map[string]string{
-				"Access-Control-Allow-Origin":  "*",
 				"Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 				"Access-Control-Allow-Headers": "X-Custom-Header, Some-Other-Header",
 			},

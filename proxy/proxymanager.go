@@ -287,9 +287,7 @@ func (pm *ProxyManager) setupGinEngine() {
 				if origin != "" {
 					c.Header("Access-Control-Allow-Origin", origin)
 					c.Header("Access-Control-Allow-Credentials", "true")
-				} else {
-					// Fallback to * for same-origin requests or when no Origin header
-					c.Header("Access-Control-Allow-Origin", "*")
+					c.Header("Vary", "Origin")
 				}
 
 				c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
@@ -561,9 +559,11 @@ func (pm *ProxyManager) listModelsHandler(c *gin.Context) {
 		return si < sj
 	})
 
-	// Set CORS headers if origin exists
-	if origin := c.GetHeader("Origin"); origin != "" {
+	// Set CORS headers for allowed origins only
+	if origin := c.GetHeader("Origin"); origin != "" && pm.isOriginAllowed(origin) {
 		c.Header("Access-Control-Allow-Origin", origin)
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.Header("Vary", "Origin")
 	}
 
 	// Use gin's JSON method which handles content-type and encoding
