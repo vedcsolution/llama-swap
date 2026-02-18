@@ -386,8 +386,11 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 			return
 		}
 		// If no source image specified, automatically use the latest version
-		if req.SourceImage == "" && state.backendKind == "trtllm" && state.TRTLLMImage != nil && state.TRTLLMImage.Latest != "" {
-			trtllmSourceImage = state.TRTLLMImage.Latest
+		if req.SourceImage == "" {
+			state := pm.recipeBackendState()
+			if state.BackendKind == "trtllm" && state.TRTLLMImage != nil && state.TRTLLMImage.Latest != "" {
+				trtllmSourceImage = state.TRTLLMImage.Latest
+			}
 		}
 		commandText = fmt.Sprintf(
 			"bash -lc \"./build-and-copy.sh -t %s --source-image $NEW_IMAGE -c; cleanup old image on local+peer nodes\"",

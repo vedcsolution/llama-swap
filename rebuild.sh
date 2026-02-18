@@ -19,7 +19,7 @@ ls -lh build/llama-swap
 echo "🔄 Reiniciando llama-swap..."
 pkill -f llama-swap || true
 sleep 2
-nohup ./build/llama-swap --config /home/csolutions_ai/Swap-Laboratories/config.yaml --watch-config -listen 0.0.0.0:8080 > /tmp/llama-swap.log 2>&1 &
+nohup ./build/llama-swap --config /home/csolutions_ai/swap-laboratories/config.yaml --watch-config -listen 0.0.0.0:8080 > /tmp/llama-swap.log 2>&1 &
 echo "✅ llama-swap reiniciado"
 
 echo "🌐 Verificando servicio..."
