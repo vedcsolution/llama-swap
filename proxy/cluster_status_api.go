@@ -228,7 +228,28 @@ func clusterAutodiscoverPath() string {
 	if v := strings.TrimSpace(os.Getenv(clusterAutodiscoverPathEnv)); v != "" {
 		return v
 	}
-	return filepath.Join(recipesBackendDir(), "autodiscover.sh")
+
+	backendDir := recipesBackendDir()
+	primary := filepath.Join(backendDir, "autodiscover.sh")
+	if clusterFileExists(primary) {
+		return primary
+	}
+
+	// Compatibility fallback: spark-vllm-docker-nvidia may not include autodiscover.sh
+	backendBase := strings.ToLower(filepath.Base(backendDir))
+	if strings.Contains(backendBase, "spark-vllm-docker-nvidia") {
+		fallback := filepath.Join(filepath.Dir(backendDir), "spark-vllm-docker", "autodiscover.sh")
+		if clusterFileExists(fallback) {
+			return fallback
+		}
+	}
+
+	return primary
+}
+
+func clusterFileExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
 }
 
 func runAutodiscoverSnapshot(ctx context.Context, autodiscoverPath string) (map[string]string, []string) {
