@@ -29,6 +29,7 @@ const (
 	recipesBackendOverrideFileEnv     = "LLAMA_SWAP_RECIPES_BACKEND_OVERRIDE_FILE"
 	recipesLocalDirEnv                = "LLAMA_SWAP_LOCAL_RECIPES_DIR"
 	trtllmSourceImageOverrideFile     = ".llama-swap-trtllm-source-image"
+	nvidiaSourceImageOverrideFile     = ".llama-swap-nvidia-source-image"
 	defaultRecipesBackendSubdir       = "spark-vllm-docker"
 	defaultRecipesBackendAltSubdir    = "spark-trtllm-docker"
 	defaultRecipesBackendSQLSubdir    = "spark-sqlang-docker"
@@ -37,11 +38,15 @@ const (
 	defaultRecipeGroupName            = "managed-recipes"
 	defaultTRTLLMImageTag             = "trtllm-node"
 	defaultTRTLLMSourceImage          = "nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc3"
+	defaultNVIDIAImageTag             = "vllm/vllm-openai:v0.6.6.post1"
+	defaultNVIDIASourceImage          = "vllm/vllm-openai:v0.6.6.post1"
 	trtllmDeploymentGuideURL          = "https://build.nvidia.com/spark/trt-llm/stacked-sparks"
+	nvidiaDeploymentGuideURL          = "https://nvidia.github.io/spark-rapids-docs/"
 	recipeMetadataKey                 = "recipe_ui"
 	recipeMetadataManagedField        = "managed"
 	nvcrProxyAuthURL                  = "https://nvcr.io/proxy_auth?scope=repository:nvidia/tensorrt-llm/release:pull"
 	nvcrTagsListURL                   = "https://nvcr.io/v2/nvidia/tensorrt-llm/release/tags/list?n=2000"
+	dockerHubAPIURL                   = "https://hub.docker.com/v2/repositories/vllm/vllm-openai/tags?page_size=100"
 )
 
 var (
@@ -101,15 +106,16 @@ type RecipeUIState struct {
 }
 
 type RecipeBackendState struct {
-	BackendDir         string                    `json:"backendDir"`
-	BackendSource      string                    `json:"backendSource"`
-	Options            []string                  `json:"options"`
-	BackendKind        string                    `json:"backendKind"`
-	BackendVendor      string                    `json:"backendVendor,omitempty"`
-	DeploymentGuideURL string                    `json:"deploymentGuideUrl,omitempty"`
-	RepoURL            string                    `json:"repoUrl,omitempty"`
-	Actions            []RecipeBackendActionInfo `json:"actions"`
-	TRTLLMImage        *RecipeBackendTRTLLMImage `json:"trtllmImage,omitempty"`
+	BackendDir         string                       `json:"backendDir"`
+	BackendSource      string                       `json:"backendSource"`
+	Options            []string                     `json:"options"`
+	BackendKind        string                       `json:"backendKind"`
+	BackendVendor      string                       `json:"backendVendor,omitempty"`
+	DeploymentGuideURL string                       `json:"deploymentGuideUrl,omitempty"`
+	RepoURL            string                       `json:"repoUrl,omitempty"`
+	Actions            []RecipeBackendActionInfo    `json:"actions"`
+	TRTLLMImage        *RecipeBackendTRTLLMImage    `json:"trtllmImage,omitempty"`
+	NVIDIAImage        *RecipeBackendNVIDIAImage    `json:"nvidiaImage,omitempty"`
 }
 
 type RecipeBackendActionInfo struct {
@@ -119,6 +125,15 @@ type RecipeBackendActionInfo struct {
 }
 
 type RecipeBackendTRTLLMImage struct {
+	Selected        string   `json:"selected"`
+	Default         string   `json:"default"`
+	Latest          string   `json:"latest,omitempty"`
+	UpdateAvailable bool     `json:"updateAvailable,omitempty"`
+	Available       []string `json:"available,omitempty"`
+	Warning         string   `json:"warning,omitempty"`
+}
+
+type RecipeBackendNVIDIAImage struct {
 	Selected        string   `json:"selected"`
 	Default         string   `json:"default"`
 	Latest          string   `json:"latest,omitempty"`
@@ -228,6 +243,16 @@ func (pm *ProxyManager) apiSetRecipeBackend(c *gin.Context) {
 			image := resolveTRTLLMSourceImage(backendDir, "")
 			if err := persistTRTLLMSourceImage(backendDir, image); err != nil {
 				pm.proxyLogger.Warnf("failed to persist trtllm source image override dir=%s err=%v", backendDir, err)
+			}
+		}
+	}
+
+	if nextKind == "nvidia" {
+		backendDir := strings.TrimSpace(recipesBackendDir())
+		if backendDir != "" {
+			image := resolveNVIDIASourceImage(backendDir, "")
+			if err := persistNVIDIASourceImage(backendDir, image); err != nil {
+				pm.proxyLogger.Warnf("failed to persist nvidia source image override dir=%s err=%v", backendDir, err)
 			}
 		}
 	}
@@ -516,6 +541,10 @@ func (pm *ProxyManager) recipeBackendState() RecipeBackendState {
 	if kind == "trtllm" {
 		state.TRTLLMImage = buildTRTLLMImageState(current)
 		state.DeploymentGuideURL = trtllmDeploymentGuideURL
+	}
+	if kind == "nvidia" {
+		state.NVIDIAImage = buildNVIDIAImageState(current)
+		state.DeploymentGuideURL = nvidiaDeploymentGuideURL
 	}
 	return state
 }
@@ -808,7 +837,7 @@ func detectRecipeBackendKind(backendDir string) string {
 	case strings.Contains(base, "sqlang"):
 		return "sqlang"
 	case strings.Contains(base, "vllm") && strings.Contains(base, "nvidia"):
-		return "vllm_nvidia"
+		return "nvidia"
 	case strings.Contains(base, "vllm"):
 		return "vllm"
 	default:
@@ -866,7 +895,7 @@ func shortRepoLabel(repoURL string) string {
 
 func recipeBackendVendor(kind string) string {
 	k := strings.ToLower(strings.TrimSpace(kind))
-	if k == "trtllm" || k == "vllm_nvidia" {
+	if k == "trtllm" || k == "vllm_nvidia" || k == "nvidia" {
 		return "nvidia"
 	}
 	return ""
@@ -2019,4 +2048,150 @@ func tailString(s string, max int) string {
 		return s
 	}
 	return "...(truncated)\n" + s[len(s)-max:]
+}
+
+// NVIDIA Image Functions
+
+func loadNVIDIASourceImage(backendDir string) string {
+	overrideFile := filepath.Join(backendDir, nvidiaSourceImageOverrideFile)
+	data, err := os.ReadFile(overrideFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func persistNVIDIASourceImage(backendDir, image string) error {
+	overrideFile := filepath.Join(backendDir, nvidiaSourceImageOverrideFile)
+	return os.WriteFile(overrideFile, []byte(strings.TrimSpace(image)), 0644)
+}
+
+func readDefaultNVIDIASourceImage(backendDir string) string {
+	image := loadNVIDIASourceImage(backendDir)
+	if image != "" {
+		return image
+	}
+	return defaultNVIDIASourceImage
+}
+
+func resolveNVIDIASourceImage(backendDir, requested string) string {
+	if requested != "" {
+		return requested
+	}
+	return readDefaultNVIDIASourceImage(backendDir)
+}
+
+func tagFromImageRef(imageRef string) string {
+	parts := strings.Split(imageRef, ":")
+	if len(parts) >= 2 {
+		return parts[len(parts)-1]
+	}
+	return "latest"
+}
+
+func fetchNVIDIAReleaseTags(ctx context.Context) ([]string, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, "GET", dockerHubAPIURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("docker hub API returned status %d", resp.StatusCode)
+	}
+
+	var response struct {
+		Next    string `json:"next"`
+		Results []struct {
+			Name string `json:"name"`
+		} `json:"results"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, err
+	}
+
+	tags := make([]string, 0, len(response.Results))
+	for _, result := range response.Results {
+		tags = append(tags, result.Name)
+	}
+
+	return tags, nil
+}
+
+func latestNVIDIATag(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+
+	// Filter tags to only include version tags (not latest, etc.)
+	versionTags := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if tag != "latest" && strings.HasPrefix(tag, "v") {
+			versionTags = append(versionTags, tag)
+		}
+	}
+
+	if len(versionTags) == 0 {
+		return tags[0]
+	}
+
+	// Sort version tags in descending order
+	sort.Sort(sort.Reverse(sort.StringSlice(versionTags)))
+	return versionTags[0]
+}
+
+func topNVIDIATags(tags []string, limit int) []string {
+	if len(tags) <= limit {
+		return tags
+	}
+	return tags[:limit]
+}
+
+func buildNVIDIAImageState(backendDir string) *RecipeBackendNVIDIAImage {
+	defaultImage := readDefaultNVIDIASourceImage(backendDir)
+	selectedImage := resolveNVIDIASourceImage(backendDir, "")
+	if selectedImage == "" {
+		selectedImage = defaultImage
+	}
+	state := &RecipeBackendNVIDIAImage{
+		Selected: selectedImage,
+		Default:  defaultImage,
+	}
+	state.Available = appendUniqueString(state.Available, selectedImage)
+	state.Available = appendUniqueString(state.Available, defaultImage)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	tags, err := fetchNVIDIAReleaseTags(ctx)
+	if err != nil {
+		state.Warning = fmt.Sprintf("No se pudieron consultar tags de Docker Hub: %v", err)
+		return state
+	}
+
+	latestTag := latestNVIDIATag(tags)
+	if latestTag != "" {
+		latestImage := "vllm/vllm-openai:" + latestTag
+		state.Latest = latestImage
+		state.Available = appendUniqueString(state.Available, latestImage)
+
+		selectedTag := tagFromImageRef(selectedImage)
+		if selectedTag != latestTag {
+			state.UpdateAvailable = true
+		}
+	}
+
+	for _, tag := range topNVIDIATags(tags, 12) {
+		state.Available = appendUniqueString(state.Available, "vllm/vllm-openai:"+tag)
+	}
+	return state
 }
