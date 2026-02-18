@@ -32,6 +32,7 @@ const (
 	defaultRecipesBackendSubdir    = "spark-vllm-docker"
 	defaultRecipesBackendAltSubdir = "spark-trtllm-docker"
 	defaultRecipesBackendSQLSubdir = "spark-sqlang-docker"
+	defaultRecipesBackendNvidiaSubdir = "spark-vllm-docker-nvidia"
 	defaultRecipesLocalSubdir      = "llama-swap/recipes"
 	defaultRecipeGroupName         = "managed-recipes"
 	defaultTRTLLMImageTag          = "trtllm-node"
@@ -780,12 +781,13 @@ func getRecipesBackendOverride() string {
 }
 
 func recommendedRecipesBackendOptions() []string {
-	options := make([]string, 0, 5)
+	options := make([]string, 0, 6)
 	if home := userHomeDir(); home != "" {
 		options = append(options,
 			filepath.Join(home, defaultRecipesBackendSubdir),
 			filepath.Join(home, defaultRecipesBackendAltSubdir),
 			filepath.Join(home, defaultRecipesBackendSQLSubdir),
+			filepath.Join(home, defaultRecipesBackendNvidiaSubdir),
 		)
 	}
 	if v := strings.TrimSpace(os.Getenv(recipesBackendDirEnv)); v != "" {
@@ -801,6 +803,8 @@ func detectRecipeBackendKind(backendDir string) string {
 		return "trtllm"
 	case strings.Contains(base, "sqlang"):
 		return "sqlang"
+	case strings.Contains(base, "vllm") && strings.Contains(base, "nvidia"):
+		return "vllm_nvidia"
 	case strings.Contains(base, "vllm"):
 		return "vllm"
 	default:
@@ -857,7 +861,8 @@ func shortRepoLabel(repoURL string) string {
 }
 
 func recipeBackendVendor(kind string) string {
-	if strings.EqualFold(strings.TrimSpace(kind), "trtllm") {
+	k := strings.ToLower(strings.TrimSpace(kind))
+	if k == "trtllm" || k == "vllm_nvidia" {
 		return "nvidia"
 	}
 	return ""
@@ -1343,7 +1348,7 @@ func (pm *ProxyManager) getConfigPath() (string, error) {
 
 func normalizeBackendConfigKind(kind string) string {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "vllm", "trtllm", "sqlang":
+	case "vllm", "vllm_nvidia", "trtllm", "sqlang":
 		return strings.ToLower(strings.TrimSpace(kind))
 	default:
 		return "custom"
@@ -1681,6 +1686,11 @@ func backendMacroExpr(root map[string]any, suffix string) (string, bool) {
 		add("sqlang_" + suffix)
 		add("vllm_" + suffix)
 		add("trtllm_" + suffix)
+	case "vllm_nvidia":
+		add("vllm_nvidia_" + suffix)
+		add("vllm_" + suffix)
+		add("trtllm_" + suffix)
+		add("sqlang_" + suffix)
 	default:
 		add("vllm_" + suffix)
 		add("trtllm_" + suffix)
@@ -1725,6 +1735,20 @@ func ensureRecipeMacros(root map[string]any, configPath string) {
 		macros["llama_root"] = llamaRoot
 	} else if _, ok := macros["llama_root"]; !ok {
 		macros["llama_root"] = "${user_home}/llama-swap"
+	}
+
+		kind := detectRecipeBackendKind(backendDir)
+	if kind == "vllm_nvidia" {
+		if _, ok := macros["vllm_nvidia_nodes"]; !ok {
+			if v := strings.TrimSpace(fmt.Sprintf("%v", macros["vllm_nodes"])); v != "" && v != "<nil>" {
+				macros["vllm_nvidia_nodes"] = v
+			} else if head := strings.TrimSpace(fmt.Sprintf("%v", macros["vllm_head_ip"])); head != "" && head != "<nil>" {
+				macros["vllm_nvidia_nodes"] = head
+			}
+		}
+		if _, ok := macros["vllm_nvidia_stop_cluster"]; !ok {
+			macros["vllm_nvidia_stop_cluster"] = "${recipe_runner} --stop -n ${vllm_nvidia_nodes}"
+		}
 	}
 
 	root["macros"] = macros
