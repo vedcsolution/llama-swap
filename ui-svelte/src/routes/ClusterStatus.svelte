@@ -39,7 +39,7 @@
   }
 
   function isNodeDGXUpdatable(node: ClusterStatusState["nodes"][number]): boolean {
-    return (node.isLocal || node.sshOk) && Boolean(node.dgx?.supported);
+    return (node.isLocal || node.sshOk) && node.dgx?.supported === true && node.dgx?.updateAvailable === true;
   }
 
   function isNodeUpdating(ip: string): boolean {
