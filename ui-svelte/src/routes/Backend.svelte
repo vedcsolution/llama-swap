@@ -365,7 +365,7 @@
           <input
             class="input w-full font-mono text-sm"
             bind:value={selectedNvidiaImage}
-            placeholder="vllm/vllm-openai:v0.6.6.post1"
+            placeholder="nvcr.io/nvidia/vllm:26.01-py3"
           />
           <div class="text-xs text-txtsecondary break-all">default: <span class="font-mono">{state.nvidiaImage.default}</span></div>
           {#if state.nvidiaImage.latest}

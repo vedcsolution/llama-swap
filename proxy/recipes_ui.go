@@ -38,15 +38,16 @@ const (
 	defaultRecipeGroupName            = "managed-recipes"
 	defaultTRTLLMImageTag             = "trtllm-node"
 	defaultTRTLLMSourceImage          = "nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc3"
-	defaultNVIDIAImageTag             = "vllm/vllm-openai:v0.6.6.post1"
-	defaultNVIDIASourceImage          = "vllm/vllm-openai:v0.6.6.post1"
+	defaultNVIDIAImageTag             = "nvcr.io/nvidia/vllm:26.01-py3"
+	defaultNVIDIASourceImage          = "nvcr.io/nvidia/vllm:26.01-py3"
 	trtllmDeploymentGuideURL          = "https://build.nvidia.com/spark/trt-llm/stacked-sparks"
 	nvidiaDeploymentGuideURL          = "https://nvidia.github.io/spark-rapids-docs/"
 	recipeMetadataKey                 = "recipe_ui"
 	recipeMetadataManagedField        = "managed"
 	nvcrProxyAuthURL                  = "https://nvcr.io/proxy_auth?scope=repository:nvidia/tensorrt-llm/release:pull"
 	nvcrTagsListURL                   = "https://nvcr.io/v2/nvidia/tensorrt-llm/release/tags/list?n=2000"
-	dockerHubAPIURL                   = "https://hub.docker.com/v2/repositories/vllm/vllm-openai/tags?page_size=100"
+	nvidiaNGCAPIURL                   = "https://catalog.ngc.nvidia.com/api/v3/orgs/nvidia/containers/vllm/versions"
+	nvidiaNGCBaseURL                  = "https://catalog.ngc.nvidia.com/orgs/nvidia/containers/vllm"
 )
 
 var (
@@ -2131,7 +2132,7 @@ func resolveNVIDIASourceImage(backendDir, requested string) string {
 
 func fetchNVIDIAReleaseTags(ctx context.Context) ([]string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, "GET", dockerHubAPIURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", nvidiaNGCAPIURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2145,23 +2146,26 @@ func fetchNVIDIAReleaseTags(ctx context.Context) ([]string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("docker hub API returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("NGC API returned status %d", resp.StatusCode)
 	}
 
 	var response struct {
-		Next    string `json:"next"`
-		Results []struct {
-			Name string `json:"name"`
-		} `json:"results"`
+		Versions []struct {
+			Version string `json:"version"`
+			Label    string `json:"label"`
+			Digest   string `json:"digest"`
+		} `json:"versions"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, err
 	}
 
-	tags := make([]string, 0, len(response.Results))
-	for _, result := range response.Results {
-		tags = append(tags, result.Name)
+	tags := make([]string, 0, len(response.Versions))
+	for _, version := range response.Versions {
+		// Convert version format like "26.01-py3" to full image reference
+		imageRef := fmt.Sprintf("nvcr.io/nvidia/vllm:%s", version.Version)
+		tags = append(tags, imageRef)
 	}
 
 	return tags, nil
@@ -2172,28 +2176,119 @@ func latestNVIDIATag(tags []string) string {
 		return ""
 	}
 
-	// Filter tags to only include version tags (not latest, etc.)
-	versionTags := make([]string, 0, len(tags))
-	for _, tag := range tags {
-		if tag != "latest" && strings.HasPrefix(tag, "v") {
-			versionTags = append(versionTags, tag)
+	// Tags are now full image references like "nvcr.io/nvidia/vllm:26.01-py3"
+	// Extract versions and sort them
+	type version struct {
+		imageRef string
+		version  string
+		major    int
+		minor    int
+		patch    int
+	}
+
+	versions := make([]version, 0, len(tags))
+	for _, imageRef := range tags {
+		ver := extractNVIDIAVersion(imageRef)
+		if ver != "" {
+			// Parse version like "26.01-py3" or "26.01"
+			var major, minor, patch int
+			var numFields int
+			n, _ := fmt.Sscanf(ver, "%d.%d.%d-%*s%n", &major, &minor, &patch, &numFields)
+			if n < 3 {
+				n, _ = fmt.Sscanf(ver, "%d.%d-%*s%n", &major, &minor, &numFields)
+			}
+			if n >= 2 {
+				versions = append(versions, version{
+					imageRef: imageRef,
+					version:  ver,
+					major:   major,
+					minor:   minor,
+					patch:   patch,
+				})
+			}
 		}
 	}
 
-	if len(versionTags) == 0 {
+	if len(versions) == 0 {
 		return tags[0]
 	}
 
-	// Sort version tags in descending order
-	sort.Sort(sort.Reverse(sort.StringSlice(versionTags)))
-	return versionTags[0]
+	// Sort by major.minor.patch descending
+	sort.Slice(versions, func(i, j int) bool {
+		if versions[i].major != versions[j].major {
+			return versions[i].major > versions[j].major
+		}
+		if versions[i].minor != versions[j].minor {
+			return versions[i].minor > versions[j].minor
+		}
+		return versions[i].patch > versions[j].patch
+	})
+
+	return versions[0].imageRef
+}
+
+func extractNVIDIAVersion(imageRef string) string {
+	// Extract version from image ref like "nvcr.io/nvidia/vllm:26.01-py3"
+	parts := strings.Split(imageRef, ":")
+	if len(parts) >= 2 {
+		return parts[1]
+	}
+	return ""
 }
 
 func topNVIDIATags(tags []string, limit int) []string {
 	if len(tags) <= limit {
 		return tags
 	}
-	return tags[:limit]
+
+	// Tags are full image references, sort them by version
+	type version struct {
+		imageRef string
+		version  string
+		major    int
+		minor    int
+		patch    int
+	}
+
+	versions := make([]version, 0, len(tags))
+	for _, imageRef := range tags {
+		ver := extractNVIDIAVersion(imageRef)
+		if ver != "" {
+			var major, minor, patch int
+			var numFields int
+			n, _ := fmt.Sscanf(ver, "%d.%d.%d-%*s%n", &major, &minor, &patch, &numFields)
+			if n < 3 {
+				n, _ = fmt.Sscanf(ver, "%d.%d-%*s%n", &major, &minor, &numFields)
+			}
+			if n >= 2 {
+				versions = append(versions, version{
+					imageRef: imageRef,
+					version:  ver,
+					major:   major,
+					minor:   minor,
+					patch:   patch,
+				})
+			}
+		}
+	}
+
+	// Sort by major.minor.patch descending
+	sort.Slice(versions, func(i, j int) bool {
+		if versions[i].major != versions[j].major {
+			return versions[i].major > versions[j].major
+		}
+		if versions[i].minor != versions[j].minor {
+			return versions[i].minor > versions[j].minor
+		}
+		return versions[i].patch > versions[j].patch
+	})
+
+	// Return top limit image refs
+	result := make([]string, 0, limit)
+	for i := 0; i < limit && i < len(versions); i++ {
+		result = append(result, versions[i].imageRef)
+	}
+	return result
 }
 
 func buildNVIDIAImageState(backendDir string) *RecipeBackendNVIDIAImage {
@@ -2214,24 +2309,24 @@ func buildNVIDIAImageState(backendDir string) *RecipeBackendNVIDIAImage {
 
 	tags, err := fetchNVIDIAReleaseTags(ctx)
 	if err != nil {
-		state.Warning = fmt.Sprintf("No se pudieron consultar tags de Docker Hub: %v", err)
+		state.Warning = fmt.Sprintf("No se pudieron consultar tags de NGC: %v", err)
 		return state
 	}
 
-	latestTag := latestNVIDIATag(tags)
-	if latestTag != "" {
-		latestImage := "vllm/vllm-openai:" + latestTag
+	latestImage := latestNVIDIATag(tags)
+	if latestImage != "" {
 		state.Latest = latestImage
 		state.Available = appendUniqueString(state.Available, latestImage)
 
-		selectedTag := tagFromImageRef(selectedImage)
-		if selectedTag != latestTag {
+		selectedVersion := extractNVIDIAVersion(selectedImage)
+		latestVersion := extractNVIDIAVersion(latestImage)
+		if selectedVersion != "" && latestVersion != "" && selectedVersion != latestVersion {
 			state.UpdateAvailable = true
 		}
 	}
 
 	for _, tag := range topNVIDIATags(tags, 12) {
-		state.Available = appendUniqueString(state.Available, "vllm/vllm-openai:"+tag)
+		state.Available = appendUniqueString(state.Available, tag)
 	}
 	return state
 }
