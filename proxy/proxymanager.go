@@ -24,7 +24,9 @@ import (
 )
 
 const (
-	PROFILE_SPLIT_CHAR = ":"
+	PROFILE_SPLIT_CHAR    = ":"
+	maxInferenceBodyBytes = 32 << 20
+	maxMultipartFormBytes = 32 << 20
 )
 
 type proxyCtxKey string
@@ -652,10 +654,43 @@ func (pm *ProxyManager) proxyToUpstream(c *gin.Context) {
 	}
 }
 
+type resolvedModelTarget struct {
+	modelID      string
+	useModelName string
+	isPeer       bool
+	handler      func(modelID string, w http.ResponseWriter, r *http.Request) error
+}
+
+func (pm *ProxyManager) resolveModelTarget(requestedModel string) (*resolvedModelTarget, error) {
+	if modelID, found := pm.config.RealModelName(requestedModel); found {
+		processGroup, err := pm.swapProcessGroup(modelID)
+		if err != nil {
+			return nil, fmt.Errorf("error swapping process group: %w", err)
+		}
+		pm.proxyLogger.Debugf("ProxyManager using local Process for model: %s", requestedModel)
+		return &resolvedModelTarget{
+			modelID:      modelID,
+			useModelName: pm.config.Models[modelID].UseModelName,
+			isPeer:       false,
+			handler:      processGroup.ProxyRequest,
+		}, nil
+	}
+
+	if pm.peerProxy != nil && pm.peerProxy.HasPeerModel(requestedModel) {
+		pm.proxyLogger.Debugf("ProxyManager using ProxyPeer for model: %s", requestedModel)
+		return &resolvedModelTarget{
+			modelID: requestedModel,
+			isPeer:  true,
+			handler: pm.peerProxy.ProxyRequest,
+		}, nil
+	}
+
+	return nil, nil
+}
+
 func (pm *ProxyManager) proxyInferenceHandler(c *gin.Context) {
-	// Limit body size to prevent memory exhaustion (max 32MB)
-	const maxBodySize = 32 << 20 // 32MB
-	limitedReader := io.LimitReader(c.Request.Body, maxBodySize+1) // +1 to detect overflow
+	// Limit body size to prevent memory exhaustion.
+	limitedReader := io.LimitReader(c.Request.Body, maxInferenceBodyBytes+1) // +1 to detect overflow
 
 	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
@@ -664,8 +699,8 @@ func (pm *ProxyManager) proxyInferenceHandler(c *gin.Context) {
 	}
 
 	// Check if body was truncated
-	if len(bodyBytes) > maxBodySize {
-		pm.sendErrorResponse(c, http.StatusRequestEntityTooLarge, fmt.Sprintf("request body too large (max %d MB)", maxBodySize>>20))
+	if len(bodyBytes) > maxInferenceBodyBytes {
+		pm.sendErrorResponse(c, http.StatusRequestEntityTooLarge, fmt.Sprintf("request body too large (max %d MB)", maxInferenceBodyBytes>>20))
 		return
 	}
 
@@ -675,19 +710,21 @@ func (pm *ProxyManager) proxyInferenceHandler(c *gin.Context) {
 		return
 	}
 
-	// Look for a matching local model first
-	var nextHandler func(modelID string, w http.ResponseWriter, r *http.Request) error
+	target, err := pm.resolveModelTarget(requestedModel)
+	if err != nil {
+		pm.sendErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if target == nil {
+		pm.sendErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("could not find suitable inference handler for %s", requestedModel))
+		return
+	}
+	modelID := target.modelID
+	nextHandler := target.handler
 
-	modelID, found := pm.config.RealModelName(requestedModel)
-	if found {
-		processGroup, err := pm.swapProcessGroup(modelID)
-		if err != nil {
-			pm.sendErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("error swapping process group: %s", err.Error()))
-			return
-		}
-
+	if !target.isPeer {
 		// issue #69 allow custom model names to be sent to upstream
-		useModelName := pm.config.Models[modelID].UseModelName
+		useModelName := target.useModelName
 		if useModelName != "" {
 			bodyBytes, err = sjson.SetBytes(bodyBytes, "model", useModelName)
 			if err != nil {
@@ -722,12 +759,7 @@ func (pm *ProxyManager) proxyInferenceHandler(c *gin.Context) {
 			}
 		}
 
-		pm.proxyLogger.Debugf("ProxyManager using local Process for model: %s", requestedModel)
-		nextHandler = processGroup.ProxyRequest
-	} else if pm.peerProxy != nil && pm.peerProxy.HasPeerModel(requestedModel) {
-		pm.proxyLogger.Debugf("ProxyManager using ProxyPeer for model: %s", requestedModel)
-		modelID = requestedModel
-
+	} else {
 		// issue #453 apply filters for peer requests
 		peerFilters := pm.peerProxy.GetPeerFilters(requestedModel)
 
@@ -753,12 +785,6 @@ func (pm *ProxyManager) proxyInferenceHandler(c *gin.Context) {
 			}
 		}
 
-		nextHandler = pm.peerProxy.ProxyRequest
-	}
-
-	if nextHandler == nil {
-		pm.sendErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("could not find suitable inference handler for %s", requestedModel))
-		return
 	}
 
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
@@ -791,7 +817,7 @@ func (pm *ProxyManager) proxyInferenceHandler(c *gin.Context) {
 
 func (pm *ProxyManager) proxyOAIPostFormHandler(c *gin.Context) {
 	// Parse multipart form
-	if err := c.Request.ParseMultipartForm(32 << 20); err != nil { // 32MB max memory, larger files go to tmp disk
+	if err := c.Request.ParseMultipartForm(maxMultipartFormBytes); err != nil {
 		pm.sendErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("error parsing multipart form: %s", err.Error()))
 		return
 	}
@@ -804,30 +830,18 @@ func (pm *ProxyManager) proxyOAIPostFormHandler(c *gin.Context) {
 	}
 
 	// Look for a matching local model first, then check peers
-	var nextHandler func(modelID string, w http.ResponseWriter, r *http.Request) error
-	var useModelName string
-
-	modelID, found := pm.config.RealModelName(requestedModel)
-	if found {
-		processGroup, err := pm.swapProcessGroup(modelID)
-		if err != nil {
-			pm.sendErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("error swapping process group: %s", err.Error()))
-			return
-		}
-
-		useModelName = pm.config.Models[modelID].UseModelName
-		pm.proxyLogger.Debugf("ProxyManager using local Process for model: %s", requestedModel)
-		nextHandler = processGroup.ProxyRequest
-	} else if pm.peerProxy != nil && pm.peerProxy.HasPeerModel(requestedModel) {
-		pm.proxyLogger.Debugf("ProxyManager using ProxyPeer for model: %s", requestedModel)
-		modelID = requestedModel
-		nextHandler = pm.peerProxy.ProxyRequest
+	target, err := pm.resolveModelTarget(requestedModel)
+	if err != nil {
+		pm.sendErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
 	}
-
-	if nextHandler == nil {
+	if target == nil {
 		pm.sendErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("could not find suitable handler for %s", requestedModel))
 		return
 	}
+	modelID := target.modelID
+	nextHandler := target.handler
+	useModelName := target.useModelName
 
 	// We need to reconstruct the multipart form in any case since the body is consumed
 	// Create a new buffer for the reconstructed request
@@ -924,28 +938,17 @@ func (pm *ProxyManager) proxyGETModelHandler(c *gin.Context) {
 		return
 	}
 
-	var nextHandler func(modelID string, w http.ResponseWriter, r *http.Request) error
-	var modelID string
-
-	if realModelID, found := pm.config.RealModelName(requestedModel); found {
-		processGroup, err := pm.swapProcessGroup(realModelID)
-		if err != nil {
-			pm.sendErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("error swapping process group: %s", err.Error()))
-			return
-		}
-		modelID = realModelID
-		pm.proxyLogger.Debugf("ProxyManager using local Process for model: %s", requestedModel)
-		nextHandler = processGroup.ProxyRequest
-	} else if pm.peerProxy != nil && pm.peerProxy.HasPeerModel(requestedModel) {
-		modelID = requestedModel
-		pm.proxyLogger.Debugf("ProxyManager using ProxyPeer for model: %s", requestedModel)
-		nextHandler = pm.peerProxy.ProxyRequest
+	target, err := pm.resolveModelTarget(requestedModel)
+	if err != nil {
+		pm.sendErrorResponse(c, http.StatusInternalServerError, err.Error())
+		return
 	}
-
-	if nextHandler == nil {
+	if target == nil {
 		pm.sendErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("could not find suitable handler for %s", requestedModel))
 		return
 	}
+	modelID := target.modelID
+	nextHandler := target.handler
 
 	if err := nextHandler(modelID, c.Writer, c.Request); err != nil {
 		pm.sendErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("error proxying request: %s", err.Error()))
