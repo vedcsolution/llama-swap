@@ -963,22 +963,8 @@ func recipeBackendActionsForKind(kind, backendDir, repoURL string) []RecipeBacke
 		)
 	}
 
-	if !backendHasBuildScript(backendDir) {
-		return actions
-	}
-
-	if kind == "trtllm" {
-		actions = append(actions,
-			RecipeBackendActionInfo{
-				Action:      "update_trtllm_image",
-				Label:       "Update TRT-LLM Image",
-				CommandHint: "./build-and-copy.sh -t trtllm-node --source-image <selected> -c + cleanup previous source image on peer nodes",
-			},
-		)
-		return actions
-	}
-
 	if kind == "nvidia" {
+		// NVIDIA actions don't require build-and-copy.sh
 		actions = append(actions,
 			RecipeBackendActionInfo{
 				Action:      "pull_nvidia_image",
@@ -989,6 +975,21 @@ func recipeBackendActionsForKind(kind, backendDir, repoURL string) []RecipeBacke
 				Action:      "update_nvidia_image",
 				Label:       "Update NVIDIA Image",
 				CommandHint: "docker pull <selected> + persist as new default",
+			},
+		)
+		return actions
+	}
+
+	if !backendHasBuildScript(backendDir) {
+		return actions
+	}
+
+	if kind == "trtllm" {
+		actions = append(actions,
+			RecipeBackendActionInfo{
+				Action:      "update_trtllm_image",
+				Label:       "Update TRT-LLM Image",
+				CommandHint: "./build-and-copy.sh -t trtllm-node --source-image <selected> -c + cleanup previous source image on peer nodes",
 			},
 		)
 		return actions
@@ -2150,40 +2151,26 @@ func resolveNVIDIASourceImage(backendDir, requested string) string {
 }
 
 func fetchNVIDIAReleaseTags(ctx context.Context) ([]string, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, "GET", nvidiaNGCAPIURL, nil)
-	if err != nil {
-		return nil, err
+	// Known NVIDIA vLLM image versions from NGC Catalog
+	// These are the most commonly used versions
+	knownVersions := []string{
+		"26.01-py3",
+		"25.03-py3",
+		"25.02-py3",
+		"25.01-py3",
+		"24.12-py3",
+		"24.11-py3",
+		"24.10-py3",
+		"24.09-py3",
+		"24.08-py3",
+		"24.07-py3",
+		"24.06-py3",
+		"24.05-py3",
 	}
 
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("NGC API returned status %d", resp.StatusCode)
-	}
-
-	var response struct {
-		Versions []struct {
-			Version string `json:"version"`
-			Label    string `json:"label"`
-			Digest   string `json:"digest"`
-		} `json:"versions"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, err
-	}
-
-	tags := make([]string, 0, len(response.Versions))
-	for _, version := range response.Versions {
-		// Convert version format like "26.01-py3" to full image reference
-		imageRef := fmt.Sprintf("nvcr.io/nvidia/vllm:%s", version.Version)
+	tags := make([]string, 0, len(knownVersions))
+	for _, version := range knownVersions {
+		imageRef := fmt.Sprintf("nvcr.io/nvidia/vllm:%s", version)
 		tags = append(tags, imageRef)
 	}
 

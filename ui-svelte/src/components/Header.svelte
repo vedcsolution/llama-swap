@@ -126,7 +126,7 @@
       class="text-gray-600 hover:text-black dark:text-gray-300 dark:hover:text-gray-100 p-1 whitespace-nowrap"
       class:font-semibold={isActive("/help", $currentRoute)}
     >
-      Help
+      Credits
     </a>
     <button onclick={toggleTheme} title="Toggle theme">
       {#if $isDarkMode}
