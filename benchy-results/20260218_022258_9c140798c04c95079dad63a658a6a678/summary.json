@@ -1,0 +1,23 @@
+{
+  "id": "9c140798c04c95079dad63a658a6a678",
+  "status": "done",
+  "exitCode": 0,
+  "model": "Qwen/Qwen3-Coder-Next-vLLM-NEXT",
+  "tokenizer": "Intel/Qwen3-Coder-Next-int4-AutoRound",
+  "baseUrl": "http://127.0.0.1:8093/v1",
+  "startedAt": "2026-02-18T02:22:33.239525926+01:00",
+  "finishedAt": "2026-02-18T02:22:58.231781902+01:00",
+  "pp": [
+    512,
+    2048,
+    8192
+  ],
+  "tg": [
+    32,
+    128
+  ],
+  "concurrency": [
+    1
+  ],
+  "runs": 1
+}

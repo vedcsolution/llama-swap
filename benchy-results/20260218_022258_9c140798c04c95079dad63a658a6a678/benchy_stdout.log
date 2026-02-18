@@ -1,0 +1,44 @@
+llama-benchy (0.1.dev90+ge39fc28fb)
+Date: 2026-02-18 02:22:34
+Benchmarking model: Intel/Qwen3-Coder-Next-int4-AutoRound at http://127.0.0.1:8093/v1
+Concurrency levels: [1]
+Loading text from cache: /home/csolutions_ai/.cache/llama-benchy/cc6a0b5782734ee3b9069aa3b64cc62c.txt
+Total tokens available in text corpus: 141518
+Warming up...
+Warmup (User only) complete. Delta: 8 tokens (Server: 29, Local: 21)
+Warmup (System+Empty) complete. Delta: 13 tokens (Server: 34, Local: 21)
+Measuring latency using mode: api...
+Average latency (api): 1.32 ms
+Running test: pp=512, tg=32, depth=0, concurrency=1
+  Run 1/1 (batch size 1)...
+Running test: pp=512, tg=128, depth=0, concurrency=1
+  Run 1/1 (batch size 1)...
+Running test: pp=2048, tg=32, depth=0, concurrency=1
+  Run 1/1 (batch size 1)...
+Running test: pp=2048, tg=128, depth=0, concurrency=1
+  Run 1/1 (batch size 1)...
+Running test: pp=8192, tg=32, depth=0, concurrency=1
+  Run 1/1 (batch size 1)...
+Running test: pp=8192, tg=128, depth=0, concurrency=1
+  Run 1/1 (batch size 1)...
+Printing results in MD format:
+
+
+
+| model                                 |   test |            t/s |     peak t/s |      ttfr (ms) |   est_ppt (ms) |   e2e_ttft (ms) |
+|:--------------------------------------|-------:|---------------:|-------------:|---------------:|---------------:|----------------:|
+| Intel/Qwen3-Coder-Next-int4-AutoRound |  pp512 | 2907.56 ± 0.00 |              |  177.42 ± 0.00 |  176.09 ± 0.00 |   177.46 ± 0.00 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound |   tg32 |   28.14 ± 0.00 | 29.00 ± 0.00 |                |                |                 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound |  pp512 | 2723.35 ± 0.00 |              |  189.33 ± 0.00 |  188.00 ± 0.00 |   189.37 ± 0.00 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound |  tg128 |   28.40 ± 0.00 | 29.00 ± 0.00 |                |                |                 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound | pp2048 | 3586.97 ± 0.00 |              |  572.28 ± 0.00 |  570.95 ± 0.00 |   572.31 ± 0.00 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound |   tg32 |   28.45 ± 0.00 | 29.00 ± 0.00 |                |                |                 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound | pp2048 | 3702.40 ± 0.00 |              |  554.48 ± 0.00 |  553.16 ± 0.00 |   554.53 ± 0.00 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound |  tg128 |   28.25 ± 0.00 | 29.00 ± 0.00 |                |                |                 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound | pp8192 | 3882.36 ± 0.00 |              | 2111.38 ± 0.00 | 2110.06 ± 0.00 |  2111.43 ± 0.00 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound |   tg32 |   28.40 ± 0.00 | 29.00 ± 0.00 |                |                |                 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound | pp8192 | 3870.72 ± 0.00 |              | 2117.47 ± 0.00 | 2116.14 ± 0.00 |  2117.50 ± 0.00 |
+| Intel/Qwen3-Coder-Next-int4-AutoRound |  tg128 |   28.35 ± 0.00 | 29.00 ± 0.00 |                |                |                 |
+
+llama-benchy (0.1.dev90+ge39fc28fb)
+date: 2026-02-18 02:22:34 | latency mode: api
