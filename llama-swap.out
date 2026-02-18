@@ -1,3 +1,0 @@
-Watching Configuration for changes
-llama-swap listening on http://0.0.0.0:8080
-2026/02/18 10:43:42 Fatal server error: listen tcp 0.0.0.0:8080: bind: address already in use

@@ -40,6 +40,12 @@ const (
 	StopWaitForInflightRequest
 )
 
+const (
+	processStartupInitialDelay    = 250 * time.Millisecond
+	processHealthCheckDialTimeout = 500 * time.Millisecond
+	processHealthCheckReadTimeout = 5 * time.Second
+)
+
 type Process struct {
 	ID           string
 	config       config.ModelConfig
@@ -49,6 +55,7 @@ type Process struct {
 	// PR #155 called to cancel the upstream process
 	cmdMutex       sync.RWMutex
 	cancelUpstream context.CancelFunc
+	cancelTTL      context.CancelFunc // for canceling the TTL checker goroutine
 
 	// closed when command exits
 	cmdWaitChan chan struct{}
@@ -213,6 +220,28 @@ func (p *Process) forceState(newState ProcessState) {
 	p.state = newState
 }
 
+// validateCommand checks if a command path contains potentially dangerous characters
+// that could lead to command injection
+func validateCommand(cmd string) error {
+	if cmd == "" {
+		return fmt.Errorf("command cannot be empty")
+	}
+
+	// Check for dangerous shell operators and characters that could lead to injection
+	dangerousPatterns := []string{
+		";", "&&", "||", "|", "`", "$(", "$", "\n", "\r", "\t",
+		">", "<", "*", "?", "[", "]", "{", "}", "&",
+	}
+
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(cmd, pattern) {
+			return fmt.Errorf("command contains potentially dangerous character: %q", pattern)
+		}
+	}
+
+	return nil
+}
+
 // start starts the upstream command, checks the health endpoint, and sets the state to Ready
 // it is a private method because starting is automatic but stopping can be called
 // at any time.
@@ -225,6 +254,11 @@ func (p *Process) start() error {
 	args, err := p.config.SanitizedCommand()
 	if err != nil {
 		return fmt.Errorf("unable to get sanitized command: %v", err)
+	}
+
+	// Validate the command to prevent injection
+	if err := validateCommand(args[0]); err != nil {
+		return fmt.Errorf("command validation failed: %w", err)
 	}
 
 	if curState, err := p.swapState(StateStopped, StateStarting); err != nil {
@@ -289,7 +323,13 @@ func (p *Process) start() error {
 	// 3. The health check passes
 	//
 	// only in the third case will the process be considered Ready to accept
-	<-time.After(250 * time.Millisecond) // give process a bit of time to start
+	startupDelay := time.NewTimer(processStartupInitialDelay) // give process a bit of time to start
+	defer startupDelay.Stop()
+	select {
+	case <-cmdContext.Done():
+		return fmt.Errorf("startup canceled before health check: %w", cmdContext.Err())
+	case <-startupDelay.C:
+	}
 
 	checkStartTime := time.Now()
 	maxDuration := time.Second * time.Duration(p.healthCheckTimeout)
@@ -303,8 +343,14 @@ func (p *Process) start() error {
 			return fmt.Errorf("failed to create health check URL proxy=%s and checkEndpoint=%s", proxyTo, checkEndpoint)
 		}
 
-		// Ready Check loop
+		// Ready check loop
+		checkTicker := time.NewTicker(p.healthCheckLoopInterval)
+		defer checkTicker.Stop()
 		for {
+			if err := cmdContext.Err(); err != nil {
+				return errors.New("health check interrupted due to shutdown")
+			}
+
 			currentState := p.CurrentState()
 			if currentState != StateStarting {
 				if currentState == StateStopped {
@@ -329,30 +375,46 @@ func (p *Process) start() error {
 					p.proxyLogger.Debugf("<%s> Health check error on %s, %v (normal during startup)", p.ID, healthURL, err)
 				}
 			}
-			<-time.After(p.healthCheckLoopInterval)
+
+			select {
+			case <-cmdContext.Done():
+				return errors.New("health check interrupted due to shutdown")
+			case <-checkTicker.C:
+			}
 		}
 	}
 
 	if p.config.UnloadAfter > 0 {
 		// start a goroutine to check every second if
 		// the process should be stopped
+		ttlContext, cancelTTL := context.WithCancel(context.Background())
+		p.cancelTTL = cancelTTL
+
 		go func() {
 			maxDuration := time.Duration(p.config.UnloadAfter) * time.Second
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
 
-			for range time.Tick(time.Second) {
-				if p.CurrentState() != StateReady {
+			for {
+				select {
+				case <-ttlContext.Done():
+					// Context was canceled, exit gracefully
 					return
-				}
+				case <-ticker.C:
+					if p.CurrentState() != StateReady {
+						return
+					}
 
-				// skip the TTL check if there are inflight requests
-				if p.inFlightRequestsCount.Load() != 0 {
-					continue
-				}
+					// skip the TTL check if there are inflight requests
+					if p.inFlightRequestsCount.Load() != 0 {
+						continue
+					}
 
-				if time.Since(p.getLastRequestHandled()) > maxDuration {
-					p.proxyLogger.Infof("<%s> Unloading model, TTL of %ds reached", p.ID, p.config.UnloadAfter)
-					p.Stop()
-					return
+					if time.Since(p.getLastRequestHandled()) > maxDuration {
+						p.proxyLogger.Infof("<%s> Unloading model, TTL of %ds reached", p.ID, p.config.UnloadAfter)
+						p.Stop()
+						return
+					}
 				}
 			}
 		}()
@@ -423,6 +485,11 @@ func (p *Process) Shutdown() {
 // stopCommand will send a SIGTERM to the process and wait for it to exit.
 // If it does not exit within 5 seconds, it will send a SIGKILL.
 func (p *Process) stopCommand() {
+	// Cancel the TTL checker goroutine to prevent goroutine leak
+	if p.cancelTTL != nil {
+		p.cancelTTL()
+	}
+
 	stopStartTime := time.Now()
 	defer func() {
 		p.proxyLogger.Debugf("<%s> stopCommand took %v", p.ID, time.Since(stopStartTime))
@@ -451,13 +518,13 @@ func (p *Process) checkHealthEndpoint(healthURL string) error {
 		// wait a short time for a tcp connection to be established
 		Transport: &http.Transport{
 			DialContext: (&net.Dialer{
-				Timeout: 500 * time.Millisecond,
+				Timeout: processHealthCheckDialTimeout,
 			}).DialContext,
 		},
 
 		// give a long time to respond to the health check endpoint
 		// after the connection is established. See issue: 276
-		Timeout: 5000 * time.Millisecond,
+		Timeout: processHealthCheckReadTimeout,
 	}
 
 	req, err := http.NewRequest("GET", healthURL, nil)
@@ -637,6 +704,12 @@ func (p *Process) cmdStopUpstreamProcess() error {
 		if err != nil {
 			p.proxyLogger.Errorf("<%s> Failed to sanitize stop command: %v", p.ID, err)
 			return err
+		}
+
+		// Validate the stop command to prevent injection
+		if err := validateCommand(stopArgs[0]); err != nil {
+			p.proxyLogger.Errorf("<%s> Stop command validation failed: %v", p.ID, err)
+			return fmt.Errorf("stop command validation failed: %w", err)
 		}
 
 		p.proxyLogger.Debugf("<%s> Executing stop command: %s", p.ID, strings.Join(stopArgs, " "))

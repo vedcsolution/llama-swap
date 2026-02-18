@@ -151,6 +151,9 @@ type Config struct {
 
 	// support remote peers, see issue #433, #296
 	Peers PeerDictionaryConfig `yaml:"peers"`
+
+	// allowed CORS origins for security
+	AllowedOrigins []string `yaml:"allowedOrigins"`
 }
 
 func (c *Config) RealModelName(search string) (string, bool) {
@@ -209,7 +212,7 @@ func LoadConfigFromReader(r io.Reader) (Config, error) {
 	}
 
 	if config.HealthCheckTimeout < 15 {
-		config.HealthCheckTimeout = 15
+		return Config{}, fmt.Errorf("healthCheckTimeout must be greater than or equal to 15")
 	}
 
 	if config.StartPort < 1 {

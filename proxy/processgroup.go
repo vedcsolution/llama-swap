@@ -12,6 +12,9 @@ import (
 type ProcessGroup struct {
 	sync.Mutex
 
+	// Serializes swap-mode request handling so only one model switch/request runs at a time.
+	swapRequestMu sync.Mutex
+
 	config     config.Config
 	id         string
 	swap       bool
@@ -54,31 +57,34 @@ func NewProcessGroup(id string, config config.Config, proxyLogger *LogMonitor, u
 	return pg
 }
 
-// ProxyRequest proxies a request to the specified model
+// ProxyRequest proxies a request to the specified model.
+// In swap mode we serialize switching and proxying with swapRequestMu while keeping pg.Lock short-lived.
 func (pg *ProcessGroup) ProxyRequest(modelID string, writer http.ResponseWriter, request *http.Request) error {
 	if !pg.HasMember(modelID) {
 		return fmt.Errorf("model %s not part of group %s", modelID, pg.id)
 	}
 
 	if pg.swap {
+		pg.swapRequestMu.Lock()
+		defer pg.swapRequestMu.Unlock()
+
+		previousModelID := ""
+
 		pg.Lock()
 		if pg.lastUsedProcess != modelID {
-
-			// is there something already running?
-			if pg.lastUsedProcess != "" {
-				pg.processes[pg.lastUsedProcess].Stop()
-			}
-
-			// wait for the request to the new model to be fully handled
-			// and prevent race conditions see issue #277
-			pg.processes[modelID].ProxyRequest(writer, request)
+			previousModelID = pg.lastUsedProcess
 			pg.lastUsedProcess = modelID
-
-			// short circuit and exit
-			pg.Unlock()
-			return nil
 		}
 		pg.Unlock()
+
+		if previousModelID != "" {
+			if previousProcess, ok := pg.processes[previousModelID]; ok {
+				previousProcess.Stop()
+			}
+		}
+
+		pg.processes[modelID].ProxyRequest(writer, request)
+		return nil
 	}
 
 	pg.processes[modelID].ProxyRequest(writer, request)

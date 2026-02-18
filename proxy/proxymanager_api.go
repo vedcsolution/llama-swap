@@ -90,22 +90,7 @@ func (pm *ProxyManager) getModelStatus() []Model {
 		if processGroup != nil {
 			process := processGroup.processes[modelID]
 			if process != nil {
-				var stateStr string
-				switch process.CurrentState() {
-				case StateReady:
-					stateStr = "ready"
-				case StateStarting:
-					stateStr = "starting"
-				case StateStopping:
-					stateStr = "stopping"
-				case StateShutdown:
-					stateStr = "shutdown"
-				case StateStopped:
-					stateStr = "stopped"
-				default:
-					stateStr = "unknown"
-				}
-				state = stateStr
+				state = string(process.CurrentState())
 			}
 		}
 		models = append(models, Model{

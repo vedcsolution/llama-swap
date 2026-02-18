@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -278,20 +279,33 @@ func (pm *ProxyManager) setupGinEngine() {
 	// respond with permissive OPTIONS for any endpoint
 	pm.ginEngine.Use(func(c *gin.Context) {
 		if c.Request.Method == "OPTIONS" {
-			c.Header("Access-Control-Allow-Origin", "*")
-			c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			origin := c.Request.Header.Get("Origin")
 
-			// allow whatever the client requested by default
-			if headers := c.Request.Header.Get("Access-Control-Request-Headers"); headers != "" {
-				sanitized := SanitizeAccessControlRequestHeaderValues(headers)
-				c.Header("Access-Control-Allow-Headers", sanitized)
-			} else {
-				c.Header(
-					"Access-Control-Allow-Headers",
-					"Content-Type, Authorization, Accept, X-Requested-With",
-				)
+			// Check if origin is allowed
+			if pm.isOriginAllowed(origin) {
+				if origin != "" {
+					c.Header("Access-Control-Allow-Origin", origin)
+					c.Header("Access-Control-Allow-Credentials", "true")
+				} else {
+					// Fallback to * for same-origin requests or when no Origin header
+					c.Header("Access-Control-Allow-Origin", "*")
+				}
+
+				c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+
+				// allow whatever the client requested by default
+				if headers := c.Request.Header.Get("Access-Control-Request-Headers"); headers != "" {
+					sanitized := SanitizeAccessControlRequestHeaderValues(headers)
+					c.Header("Access-Control-Allow-Headers", sanitized)
+				} else {
+					c.Header(
+						"Access-Control-Allow-Headers",
+						"Content-Type, Authorization, Accept, X-Requested-With",
+					)
+				}
+				c.Header("Access-Control-Max-Age", "86400")
 			}
-			c.Header("Access-Control-Max-Age", "86400")
+
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
@@ -639,9 +653,19 @@ func (pm *ProxyManager) proxyToUpstream(c *gin.Context) {
 }
 
 func (pm *ProxyManager) proxyInferenceHandler(c *gin.Context) {
-	bodyBytes, err := io.ReadAll(c.Request.Body)
+	// Limit body size to prevent memory exhaustion (max 32MB)
+	const maxBodySize = 32 << 20 // 32MB
+	limitedReader := io.LimitReader(c.Request.Body, maxBodySize+1) // +1 to detect overflow
+
+	bodyBytes, err := io.ReadAll(limitedReader)
 	if err != nil {
-		pm.sendErrorResponse(c, http.StatusBadRequest, "could not ready request body")
+		pm.sendErrorResponse(c, http.StatusBadRequest, "could not read request body")
+		return
+	}
+
+	// Check if body was truncated
+	if len(bodyBytes) > maxBodySize {
+		pm.sendErrorResponse(c, http.StatusRequestEntityTooLarge, fmt.Sprintf("request body too large (max %d MB)", maxBodySize>>20))
 		return
 	}
 
@@ -940,6 +964,28 @@ func (pm *ProxyManager) sendErrorResponse(c *gin.Context, statusCode int, messag
 	}
 }
 
+// isOriginAllowed checks if the given origin is allowed based on the configuration
+func (pm *ProxyManager) isOriginAllowed(origin string) bool {
+	// If no allowed origins are configured, allow all (backward compatibility)
+	if len(pm.config.AllowedOrigins) == 0 {
+		return true
+	}
+
+	// If no Origin header is present (same-origin request), allow it
+	if origin == "" {
+		return true
+	}
+
+	// Check against the whitelist
+	for _, allowed := range pm.config.AllowedOrigins {
+		if allowed == "*" || allowed == origin {
+			return true
+		}
+	}
+
+	return false
+}
+
 // apiKeyAuth returns a middleware that validates API keys if configured.
 // Returns a pass-through handler if no API keys are configured.
 func (pm *ProxyManager) apiKeyAuth() gin.HandlerFunc {
@@ -977,10 +1023,11 @@ func (pm *ProxyManager) apiKeyAuth() gin.HandlerFunc {
 			providedKey = xApiKey
 		}
 
-		// Validate key
+		// Validate key using constant-time comparison to prevent timing attacks
 		valid := false
 		for _, key := range pm.config.RequiredAPIKeys {
-			if providedKey == key {
+			// Use constant-time comparison to prevent timing attacks
+			if subtle.ConstantTimeCompare([]byte(providedKey), []byte(key)) == 1 {
 				valid = true
 				break
 			}

@@ -1373,3 +1373,13 @@ models:
 	})
 
 }
+
+func TestConfig_HealthCheckTimeoutValidation(t *testing.T) {
+	t.Run("healthCheckTimeout must be >= 15", func(t *testing.T) {
+		content := `healthCheckTimeout: 14`
+		_, err := LoadConfigFromReader(strings.NewReader(content))
+		if assert.Error(t, err) {
+			assert.Contains(t, err.Error(), "healthCheckTimeout must be greater than or equal to 15")
+		}
+	})
+}

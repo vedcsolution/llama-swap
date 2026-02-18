@@ -295,6 +295,11 @@ func (s *group[T]) Del(sub *consumer[T]) {
 			break
 		}
 	}
+
+	// Notify the condition variable to wake up any waiting goroutines
+	// This prevents potential deadlock where a goroutine might be waiting
+	// on the condition while a subscriber is being removed
+	s.cond.Broadcast()
 }
 
 // ------------------------------------- Debugging -------------------------------------
