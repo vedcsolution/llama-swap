@@ -385,6 +385,10 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "source image is empty"})
 			return
 		}
+		// If no source image specified, automatically use the latest version
+		if req.SourceImage == "" && state.backendKind == "trtllm" && state.TRTLLMImage != nil && state.TRTLLMImage.Latest != "" {
+			trtllmSourceImage = state.TRTLLMImage.Latest
+		}
 		commandText = fmt.Sprintf(
 			"bash -lc \"./build-and-copy.sh -t %s --source-image $NEW_IMAGE -c; cleanup old image on local+peer nodes\"",
 			defaultTRTLLMImageTag,
@@ -421,6 +425,18 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 		if nvidiaImage == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "source image is empty"})
 			return
+		}
+		// If no source image specified, automatically use the latest version
+		if req.SourceImage == "" {
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			tags, err := fetchNVIDIAReleaseTags(ctx)
+			if err == nil && len(tags) > 0 {
+				latestImage := latestNVIDIATag(tags)
+				if latestImage != "" {
+					nvidiaImage = latestImage
+				}
+			}
 		}
 		if err := persistNVIDIASourceImage(backendDir, nvidiaImage); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to persist nvidia image: %v", err)})
