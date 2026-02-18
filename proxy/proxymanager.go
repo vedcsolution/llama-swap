@@ -66,6 +66,8 @@ type ProxyManager struct {
 	benchyMu      sync.Mutex
 	benchyJobs    map[string]*BenchyJob
 	benchyCancels map[string]context.CancelFunc
+
+	rateLimiter *proxyRateLimiter
 }
 
 func New(proxyConfig config.Config) *ProxyManager {
@@ -187,6 +189,8 @@ func newProxyManager(proxyConfig config.Config, configPath string) *ProxyManager
 
 		benchyJobs:    make(map[string]*BenchyJob),
 		benchyCancels: make(map[string]context.CancelFunc),
+
+		rateLimiter: newProxyRateLimiter(proxyLogger),
 	}
 
 	pm.loadRecipesBackendOverride()
@@ -275,6 +279,9 @@ func (pm *ProxyManager) setupGinEngine() {
 			duration,
 		)
 	})
+
+	pm.ginEngine.Use(pm.securityHeadersMiddleware())
+	pm.ginEngine.Use(pm.rateLimiter.middleware())
 
 	// see: issue: #81, #77 and #42 for CORS issues
 	// respond with permissive OPTIONS for any endpoint
