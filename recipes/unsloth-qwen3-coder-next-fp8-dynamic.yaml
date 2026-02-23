@@ -5,7 +5,6 @@ runtime: vllm
 backend: spark-vllm-docker
 
 model: unsloth/Qwen3-Coder-Next-FP8-Dynamic
-
 container: vllm-node:latest
 
 mods:
@@ -14,12 +13,14 @@ mods:
 defaults:
   port: 8000
   host: 0.0.0.0
-  tensor_parallel: 2          # <- NO CAMBIADO
-  gpu_memory_utilization: 0.8 # <- antes 0.7
-  max_model_len: 128000        # <- el artículo usa 200000 (si te cabe)
+  tensor_parallel: 2
+  gpu_memory_utilization: 0.81
+  max_model_len: 262144
 
 env:
   PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:False"
+  # En GB10 / tu setup: NO forzar DeepGEMM para FP8-MoE
+  VLLM_USE_DEEP_GEMM: "0"
 
 command: |
   vllm serve unsloth/Qwen3-Coder-Next-FP8-Dynamic \
@@ -27,7 +28,6 @@ command: |
     --enable-auto-tool-choice \
     --tool-call-parser qwen3_coder \
     --dtype bfloat16 \
-    --seed 3407 \
     --gpu-memory-utilization {gpu_memory_utilization} \
     --max-model-len {max_model_len} \
     --host {host} \
@@ -36,5 +36,8 @@ command: |
     --load-format fastsafetensors \
     --attention-backend flashinfer \
     --enable-prefix-caching \
-    -tp {tensor_parallel} \
+    --enable-chunked-prefill \
+    --max-num-batched-tokens 8192 \
+    --max-num-seqs 64 \
+    --tensor-parallel-size {tensor_parallel} \
     --distributed-executor-backend ray

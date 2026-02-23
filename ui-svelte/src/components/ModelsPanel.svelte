@@ -19,6 +19,10 @@
   import { isNarrow } from "../stores/theme";
   import { persistentStore } from "../stores/persistent";
   import { onMount, onDestroy } from "svelte";
+  import { basicSetup } from "codemirror";
+  import { yaml } from "@codemirror/lang-yaml";
+  import { Compartment, EditorState } from "@codemirror/state";
+  import { EditorView, keymap } from "@codemirror/view";
   import BenchyDialog from "./BenchyDialog.svelte";
   import type { BenchyJob, BenchyStartOptions, Model, RecipeManagedModel } from "../lib/types";
 
@@ -38,6 +42,10 @@
   let recipeEditorError: string | null = $state(null);
   let recipeEditorNotice: string | null = $state(null);
   let recipeEditorController: AbortController | null = null;
+  let recipeEditorHost = $state<HTMLDivElement | null>(null);
+  let recipeEditorView = $state<EditorView | null>(null);
+  let recipeEditorSyncingFromView = false;
+  const recipeEditorEditableCompartment = new Compartment();
   let recipeModelsById = $state<Record<string, RecipeManagedModel>>({});
   let clusterNodes = $state<string[]>([]);
   let selectedInferenceNodeByModel = $state<Record<string, string>>({});
@@ -412,6 +420,8 @@
 
   onDestroy(() => {
     document.removeEventListener("click", handleClickOutside);
+    recipeEditorView?.destroy();
+    recipeEditorView = null;
   });
 
   async function handleUnloadAllModels(): Promise<void> {
@@ -465,10 +475,24 @@ ${output}` : summary;
     return parsed.toLocaleString();
   }
 
+  function syncRecipeEditorViewContent(nextContent: string): void {
+    if (!recipeEditorView || recipeEditorSyncingFromView) return;
+    const currentContent = recipeEditorView.state.doc.toString();
+    if (currentContent === nextContent) return;
+    recipeEditorView.dispatch({
+      changes: {
+        from: 0,
+        to: currentContent.length,
+        insert: nextContent,
+      },
+    });
+  }
+
   function closeRecipeEditor(): void {
     recipeEditorController?.abort();
     recipeEditorController = null;
     recipeEditorModelId = null;
+    recipeEditorHost = null;
     recipeEditorRef = "";
     recipeEditorPath = "";
     recipeEditorContent = "";
@@ -649,6 +673,86 @@ ${output}` : summary;
       benchyError = e instanceof Error ? e.message : String(e);
     }
   }
+
+  $effect(() => {
+    if (!recipeEditorHost) {
+      recipeEditorView?.destroy();
+      recipeEditorView = null;
+      return;
+    }
+    if (recipeEditorView) return;
+
+    recipeEditorView = new EditorView({
+      parent: recipeEditorHost,
+      state: EditorState.create({
+        doc: recipeEditorContent,
+        extensions: [
+          basicSetup,
+          yaml(),
+          EditorView.lineWrapping,
+          recipeEditorEditableCompartment.of(EditorView.editable.of(!(recipeEditorLoading || recipeEditorSaving))),
+          keymap.of([
+            {
+              key: "Mod-s",
+              run: () => {
+                void saveRecipeEditor();
+                return true;
+              },
+            },
+          ]),
+          EditorView.updateListener.of((update) => {
+            if (!update.docChanged) return;
+            recipeEditorSyncingFromView = true;
+            recipeEditorContent = update.state.doc.toString();
+            recipeEditorSyncingFromView = false;
+          }),
+          EditorView.theme({
+            "&": {
+              height: "100%",
+              fontSize: "13px",
+              fontFamily:
+                '"JetBrains Mono","Fira Code","Cascadia Code",Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
+              backgroundColor: "transparent",
+            },
+            "&.cm-focused": {
+              outline: "none",
+            },
+            ".cm-scroller": {
+              overflow: "auto",
+              lineHeight: "1.5",
+            },
+            ".cm-content": {
+              padding: "12px 0",
+            },
+            ".cm-line": {
+              padding: "0 12px",
+            },
+            ".cm-gutters": {
+              backgroundColor: "rgba(15, 23, 42, 0.35)",
+              borderRight: "1px solid rgba(148, 163, 184, 0.2)",
+            },
+            ".cm-activeLine": {
+              backgroundColor: "rgba(56, 189, 248, 0.08)",
+            },
+            ".cm-activeLineGutter": {
+              backgroundColor: "rgba(56, 189, 248, 0.16)",
+            },
+          }),
+        ],
+      }),
+    });
+  });
+
+  $effect(() => {
+    syncRecipeEditorViewContent(recipeEditorContent);
+  });
+
+  $effect(() => {
+    if (!recipeEditorView) return;
+    recipeEditorView.dispatch({
+      effects: recipeEditorEditableCompartment.reconfigure(EditorView.editable.of(!(recipeEditorLoading || recipeEditorSaving))),
+    });
+  });
 
 </script>
 
@@ -976,15 +1080,14 @@ ${output}` : summary;
                     <div class="mt-2 p-2 border border-green-400/30 bg-green-600/10 rounded text-sm text-green-300 break-words">{recipeEditorNotice}</div>
                   {/if}
 
-                  <textarea
-                    class="mt-2 w-full min-h-[280px] px-2 py-2 rounded border border-card-border bg-background font-mono text-xs leading-5"
-                    bind:value={recipeEditorContent}
-                    spellcheck="false"
-                    disabled={recipeEditorLoading || recipeEditorSaving}
-                  ></textarea>
-                  {#if recipeEditorLoading}
-                    <div class="mt-2 text-xs text-txtsecondary">Loading recipe source...</div>
-                  {/if}
+                  <div class="relative mt-2 w-full min-h-[280px] rounded border border-card-border bg-background overflow-hidden">
+                    <div bind:this={recipeEditorHost} class="h-full w-full min-h-[280px]"></div>
+                    {#if recipeEditorLoading}
+                      <div class="absolute inset-0 grid place-items-center bg-background/80 text-xs text-txtsecondary">
+                        Loading recipe source...
+                      </div>
+                    {/if}
+                  </div>
                 </div>
               </td>
             </tr>

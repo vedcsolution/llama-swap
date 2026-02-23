@@ -3112,7 +3112,7 @@ func buildVLLMContainerDetectExpr(containerImage string) string {
 	if containerImage != "" {
 		return fmt.Sprintf(
 			"docker ps --filter %s --format \"{{.Names}}\" | head -n 1",
-			strconv.Quote("ancestor="+containerImage),
+			quoteForCommand("ancestor="+containerImage),
 		)
 	}
 	return "docker ps --format \"{{.Names}}\t{{.Image}}\" | awk \"BEGIN{IGNORECASE=1} \\$1 ~ /vllm/ || \\$2 ~ /vllm/ {print \\$1; exit}\""

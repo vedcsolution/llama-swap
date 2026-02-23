@@ -34,3 +34,4 @@ ui-svelte/node_modules/
 .hf_hub_path
 backend/spark-vllm-docker/
 backend/spark-llama-cpp/llama.cpp/
+llama-swap.out.log
