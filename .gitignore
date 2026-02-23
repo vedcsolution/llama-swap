@@ -32,3 +32,5 @@ ui-svelte/node_modules/
 
 # local helper state
 .hf_hub_path
+backend/spark-vllm-docker/
+backend/spark-llama-cpp/llama.cpp/
