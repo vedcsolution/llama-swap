@@ -1,0 +1,40 @@
+recipe_version: "1"
+name: unsloth/Qwen3-Coder-Next-FP8-Dynamic
+description: vLLM serving unsloth/Qwen3-Coder-Next-FP8-Dynamic
+runtime: vllm
+backend: spark-vllm-docker
+
+model: unsloth/Qwen3-Coder-Next-FP8-Dynamic
+
+container: vllm-node:latest
+
+mods:
+  - mods/fix-qwen3-coder-next
+
+defaults:
+  port: 8000
+  host: 0.0.0.0
+  tensor_parallel: 2          # <- NO CAMBIADO
+  gpu_memory_utilization: 0.8 # <- antes 0.7
+  max_model_len: 128000        # <- el artículo usa 200000 (si te cabe)
+
+env:
+  PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:False"
+
+command: |
+  vllm serve unsloth/Qwen3-Coder-Next-FP8-Dynamic \
+    --served-model-name unsloth/Qwen3-Coder-Next-FP8-Dynamic \
+    --enable-auto-tool-choice \
+    --tool-call-parser qwen3_coder \
+    --dtype bfloat16 \
+    --seed 3407 \
+    --gpu-memory-utilization {gpu_memory_utilization} \
+    --max-model-len {max_model_len} \
+    --host {host} \
+    --port {port} \
+    --kv-cache-dtype fp8 \
+    --load-format fastsafetensors \
+    --attention-backend flashinfer \
+    --enable-prefix-caching \
+    -tp {tensor_parallel} \
+    --distributed-executor-backend ray

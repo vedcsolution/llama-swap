@@ -1,0 +1,26 @@
+recipe_version: '1'
+name: Qwen3-Coder-Next-FP8
+description: vLLM serving Qwen3-Coder-Next-FP8 on a SINGLE NODE ONLY!
+model: Qwen/Qwen3-Coder-Next-FP8
+cluster_only: false
+container: vllm-node:latest
+mods: []
+defaults:
+  port: 8000
+  host: 0.0.0.0
+  tensor_parallel: 1
+  gpu_memory_utilization: 0.7
+  max_model_len: 131072
+env: {}
+command: |
+  vllm serve Qwen/Qwen3-Coder-Next-FP8 \
+    --enable-auto-tool-choice \
+    --tool-call-parser qwen3_coder \
+    --gpu-memory-utilization {gpu_memory_utilization} \
+    --host {host} \
+    --port {port} \
+    --load-format fastsafetensors \
+    --attention-backend flashinfer \
+    --enable-prefix-caching \
+    --max-model-len {max_model_len} 
+solo_only: true

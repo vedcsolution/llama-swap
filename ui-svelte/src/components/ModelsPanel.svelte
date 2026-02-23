@@ -8,20 +8,57 @@
     startBenchy,
     getBenchyJob,
     cancelBenchyJob,
+    getRecipeSourceState,
+    saveRecipeSourceContent,
+    createRecipeSource,
+    getRecipeUIState,
+    upsertRecipeModel,
+    deleteRecipeModel,
+    getClusterStatus,
   } from "../stores/api";
   import { isNarrow } from "../stores/theme";
   import { persistentStore } from "../stores/persistent";
   import { onMount, onDestroy } from "svelte";
   import BenchyDialog from "./BenchyDialog.svelte";
-  import RecipeManager from "./RecipeManager.svelte";
-  import type { BenchyJob, BenchyStartOptions, Model } from "../lib/types";
+  import type { BenchyJob, BenchyStartOptions, Model, RecipeManagedModel } from "../lib/types";
 
   let isUnloading = $state(false);
   let isStoppingCluster = $state(false);
   let menuOpen = $state(false);
-  let showRecipeManager = $state(false);
   let bulkActionError: string | null = $state(null);
   let bulkActionNotice: string | null = $state(null);
+  let recipeEditorModelId: string | null = $state(null);
+  let recipeEditorRef = $state("");
+  let recipeEditorPath = $state("");
+  let recipeEditorContent = $state("");
+  let recipeEditorOriginal = $state("");
+  let recipeEditorUpdatedAt = $state("");
+  let recipeEditorLoading = $state(false);
+  let recipeEditorSaving = $state(false);
+  let recipeEditorError: string | null = $state(null);
+  let recipeEditorNotice: string | null = $state(null);
+  let recipeEditorController: AbortController | null = null;
+  let recipeModelsById = $state<Record<string, RecipeManagedModel>>({});
+  let clusterNodes = $state<string[]>([]);
+  let selectedInferenceNodeByModel = $state<Record<string, string>>({});
+  let nodeApplyBusyByModel = $state<Record<string, boolean>>({});
+  let recipeDeleteBusyByModel = $state<Record<string, boolean>>({});
+  let addRecipeOpen = $state(false);
+  let addRecipeBusy = $state(false);
+  let addRecipeError: string | null = $state(null);
+  let addRecipeNotice: string | null = $state(null);
+  let addRecipeRef = $state("");
+  let addRecipeModelId = $state("");
+  let addRecipeName = $state("");
+  let addRecipeDescription = $state("");
+  let addRecipeUseModelName = $state("");
+  let addRecipeMode = $state<"solo" | "cluster">("solo");
+  let addRecipeTensorParallel = $state(1);
+  let addRecipeNodes = $state("");
+  let addRecipeContainerImage = $state("vllm-node:latest");
+  let addRecipeExtraArgs = $state("");
+  let addRecipeUnlisted = $state(false);
+  let addRecipeYAML = $state("");
   const showUnlistedStore = persistentStore<boolean>("showUnlisted", true);
   const showIdorNameStore = persistentStore<"id" | "name">("showIdorName", "id");
 
@@ -42,7 +79,6 @@
     const filtered = $models.filter((model) => $showUnlistedStore || !model.unlisted);
     const peerModels = filtered.filter((m) => m.peerID);
 
-    // Group peer models by peerID
     const grouped = peerModels.reduce(
       (acc, model) => {
         const peerId = model.peerID || "unknown";
@@ -59,18 +95,319 @@
     };
   });
 
-  // Close dropdowns when clicking outside
+  function recipeModelByID(modelID: string): RecipeManagedModel | undefined {
+    return recipeModelsById[modelID];
+  }
+
+  function selectNodeFromRecipe(recipe: RecipeManagedModel): string {
+    const raw = (recipe.nodes || "").trim();
+    if (!raw || raw.includes("${") || raw.includes(",") || raw.includes(" ")) {
+      return "";
+    }
+    return raw;
+  }
+
+  function setInferenceNodeSelection(modelID: string, value: string): void {
+    selectedInferenceNodeByModel = {
+      ...selectedInferenceNodeByModel,
+      [modelID]: value,
+    };
+  }
+
+  function slugifyRecipeRef(input: string): string {
+    return input
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  function buildAddRecipeTemplate(): string {
+    const ref = (addRecipeRef || "new-recipe").trim();
+    const model = (addRecipeUseModelName || "org/model").trim();
+    const container = (addRecipeContainerImage || "vllm-node:latest").trim();
+    const name = (addRecipeName || addRecipeModelId || ref).trim();
+    const description = (addRecipeDescription || "Custom recipe created from UI").trim();
+    const soloOnly = addRecipeMode === "solo" ? "true" : "false";
+    const clusterOnly = addRecipeMode === "cluster" ? "true" : "false";
+    const tp = Math.max(1, Number(addRecipeTensorParallel) || 1);
+
+    return [
+      'recipe_version: "1"',
+      `recipe_ref: ${ref}`,
+      `name: ${name}`,
+      `description: ${description}`,
+      `model: ${model}`,
+      `container: ${container}`,
+      `solo_only: ${soloOnly}`,
+      `cluster_only: ${clusterOnly}`,
+      "defaults:",
+      `  tensor_parallel: ${tp}`,
+      'command: |',
+      `  vllm serve ${model} --port {port} --host {host}`,
+      "",
+    ].join("\n");
+  }
+
+  function openAddRecipe(): void {
+    addRecipeOpen = true;
+    addRecipeBusy = false;
+    addRecipeError = null;
+    addRecipeNotice = null;
+    addRecipeRef = "";
+    addRecipeModelId = "";
+    addRecipeName = "";
+    addRecipeDescription = "";
+    addRecipeUseModelName = "";
+    addRecipeMode = "solo";
+    addRecipeTensorParallel = 1;
+    addRecipeNodes = "";
+    addRecipeContainerImage = "vllm-node:latest";
+    addRecipeExtraArgs = "";
+    addRecipeUnlisted = false;
+    addRecipeYAML = buildAddRecipeTemplate();
+  }
+
+  function closeAddRecipe(): void {
+    addRecipeOpen = false;
+    addRecipeBusy = false;
+    addRecipeError = null;
+    addRecipeNotice = null;
+  }
+
+  function refreshAddRecipeTemplateFromFields(): void {
+    addRecipeYAML = buildAddRecipeTemplate();
+  }
+
+  async function submitAddRecipe(): Promise<void> {
+    const modelId = (addRecipeModelId || "").trim();
+    const recipeRef = slugifyRecipeRef(addRecipeRef || modelId);
+    const useModelName = (addRecipeUseModelName || "").trim();
+
+    if (!modelId) {
+      addRecipeError = "Model ID is required.";
+      addRecipeNotice = null;
+      return;
+    }
+    if (!/^[A-Za-z0-9._-]+$/.test(modelId)) {
+      addRecipeError = "Model ID only allows letters, numbers, dot, underscore and dash (no /).";
+      addRecipeNotice = null;
+      return;
+    }
+    if (!recipeRef) {
+      addRecipeError = "Recipe ref is required.";
+      addRecipeNotice = null;
+      return;
+    }
+    if (!useModelName) {
+      addRecipeError = "useModelName (HF model) is required.";
+      addRecipeNotice = null;
+      return;
+    }
+
+    addRecipeBusy = true;
+    addRecipeError = null;
+    addRecipeNotice = null;
+
+    try {
+      const recipeYAML = (addRecipeYAML || buildAddRecipeTemplate()).trim();
+      let resolvedRecipeRef = recipeRef;
+      let createdNow = false;
+
+      try {
+        const created = await createRecipeSource(recipeRef, recipeYAML, false);
+        resolvedRecipeRef = (created.recipeRef || recipeRef).trim();
+        createdNow = true;
+      } catch (createErr) {
+        const createMsg = createErr instanceof Error ? createErr.message : String(createErr);
+        if (!/already exists/i.test(createMsg)) {
+          throw createErr;
+        }
+
+        const existing = await getRecipeSourceState(recipeRef).catch(() => null);
+        resolvedRecipeRef = (existing?.recipeRef || recipeRef).trim();
+      }
+
+      const payload: any = {
+        modelId,
+        recipeRef: resolvedRecipeRef,
+        name: (addRecipeName || modelId).trim(),
+        description: (addRecipeDescription || "").trim(),
+        aliases: [],
+        useModelName,
+        mode: addRecipeMode,
+        tensorParallel: Math.max(1, Number(addRecipeTensorParallel) || 1),
+        nodes: addRecipeMode === "cluster" ? (addRecipeNodes || "").trim() : "",
+        extraArgs: (addRecipeExtraArgs || "").trim(),
+        containerImage: (addRecipeContainerImage || "").trim(),
+        group: "managed-recipes",
+        unlisted: !!addRecipeUnlisted,
+      };
+
+      await upsertRecipeModel(payload);
+      await refreshRecipeRuntimeState();
+      addRecipeNotice = createdNow
+        ? `Recipe ${payload.recipeRef} created and model ${modelId} added.`
+        : `Recipe ${payload.recipeRef} already existed; model ${modelId} added.`;
+      addRecipeOpen = false;
+      bulkActionNotice = addRecipeNotice;
+      bulkActionError = null;
+    } catch (e) {
+      addRecipeError = e instanceof Error ? e.message : String(e);
+      addRecipeNotice = null;
+    } finally {
+      addRecipeBusy = false;
+    }
+  }
+
+  async function refreshRecipeRuntimeState(): Promise<void> {
+    const [recipeResult, clusterResult] = await Promise.allSettled([getRecipeUIState(), getClusterStatus()]);
+
+    if (recipeResult.status === "fulfilled") {
+      const byID: Record<string, RecipeManagedModel> = {};
+      const selected: Record<string, string> = {};
+      for (const recipeModel of recipeResult.value.models || []) {
+        byID[recipeModel.modelId] = recipeModel;
+        selected[recipeModel.modelId] = selectNodeFromRecipe(recipeModel);
+      }
+      recipeModelsById = byID;
+      selectedInferenceNodeByModel = selected;
+    } else {
+      console.error("Failed to fetch recipe state", recipeResult.reason);
+      recipeModelsById = {};
+      selectedInferenceNodeByModel = {};
+    }
+
+    if (clusterResult.status === "fulfilled") {
+      clusterNodes = (clusterResult.value.nodes || []).map((node) => node.ip).filter((ip) => !!ip);
+    } else {
+      console.error("Failed to fetch cluster nodes", clusterResult.reason);
+      clusterNodes = [];
+    }
+  }
+
+  function isClusterTensorParallel(recipe: RecipeManagedModel | undefined): boolean {
+    if (!recipe) {
+      return false;
+    }
+    return recipe.mode === 'cluster' && (recipe.tensorParallel || 1) > 1;
+  }
+
+  async function handleDeleteRecipe(model: Model): Promise<void> {
+    const modelID = (model.id || "").trim();
+    if (!modelID) {
+      bulkActionError = "Model ID is missing.";
+      bulkActionNotice = null;
+      return;
+    }
+
+    const ok = confirm(`Delete recipe/model ${modelID} from config.yaml?`);
+    if (!ok) {
+      return;
+    }
+
+    recipeDeleteBusyByModel = {
+      ...recipeDeleteBusyByModel,
+      [modelID]: true,
+    };
+    bulkActionError = null;
+    bulkActionNotice = null;
+
+    try {
+      await deleteRecipeModel(modelID);
+      await refreshRecipeRuntimeState();
+      if (recipeEditorModelId === modelID) {
+        closeRecipeEditor();
+      }
+      bulkActionNotice = `Recipe/model ${modelID} removed from config.yaml.`;
+    } catch (e) {
+      bulkActionError = e instanceof Error ? e.message : String(e);
+      bulkActionNotice = null;
+    } finally {
+      recipeDeleteBusyByModel = {
+        ...recipeDeleteBusyByModel,
+        [modelID]: false,
+      };
+    }
+  }
+
+  async function applyInferenceNode(model: Model): Promise<void> {
+    const recipe = recipeModelByID(model.id);
+    if (!recipe) {
+      bulkActionError = `No recipe metadata found for model ${model.id}`;
+      bulkActionNotice = null;
+      return;
+    }
+    if (isClusterTensorParallel(recipe)) {
+      bulkActionError = `Model ${model.id} is cluster TP ${recipe.tensorParallel}; it runs on multiple nodes.`;
+      bulkActionNotice = null;
+      return;
+    }
+
+    const modelID = model.id;
+    const selectedNode = (selectedInferenceNodeByModel[modelID] || '').trim();
+
+    nodeApplyBusyByModel = {
+      ...nodeApplyBusyByModel,
+      [modelID]: true,
+    };
+    bulkActionError = null;
+    bulkActionNotice = null;
+
+    try {
+      const payload: any = {
+        modelId: recipe.modelId,
+        recipeRef: recipe.recipeRef,
+        name: recipe.name || '',
+        description: recipe.description || '',
+        aliases: recipe.aliases || [],
+        useModelName: recipe.useModelName || '',
+        mode: selectedNode ? 'cluster' : (recipe.mode || 'cluster'),
+        tensorParallel: recipe.tensorParallel || 1,
+        nodes: selectedNode,
+        extraArgs: recipe.extraArgs || '',
+        containerImage: recipe.containerImage || '',
+        group: recipe.group || 'managed-recipes',
+        unlisted: !!recipe.unlisted,
+        nonPrivileged: !!recipe.nonPrivileged,
+        memLimitGb: recipe.memLimitGb || 0,
+        memSwapLimitGb: recipe.memSwapLimitGb || 0,
+        pidsLimit: recipe.pidsLimit || 0,
+        shmSizeGb: recipe.shmSizeGb || 0,
+      };
+      if (typeof recipe.benchyTrustRemoteCode === 'boolean') {
+        payload.benchyTrustRemoteCode = recipe.benchyTrustRemoteCode;
+      }
+
+      await upsertRecipeModel(payload);
+      await refreshRecipeRuntimeState();
+
+      bulkActionNotice = selectedNode
+        ? `Inference node for ${modelID} set to ${selectedNode}.`
+        : `Inference node for ${modelID} set to auto (backend default).`;
+    } catch (e) {
+      bulkActionError = e instanceof Error ? e.message : String(e);
+      bulkActionNotice = null;
+    } finally {
+      nodeApplyBusyByModel = {
+        ...nodeApplyBusyByModel,
+        [modelID]: false,
+      };
+    }
+  }
+
   function handleClickOutside(event: MouseEvent) {
     const target = event.target as Element;
-    if (!target.closest('.model-container-selector')) {
-      document.querySelectorAll('.container-dropdown.open').forEach(dropdown => {
-        dropdown.classList.remove('open');
+    if (!target.closest(".model-container-selector")) {
+      document.querySelectorAll(".container-dropdown.open").forEach((dropdown) => {
+        dropdown.classList.remove("open");
       });
     }
   }
 
   onMount(() => {
-    document.addEventListener('click', handleClickOutside);
+    document.addEventListener("click", handleClickOutside);
+    void refreshRecipeRuntimeState();
   });
 
   onDestroy(() => {
@@ -83,7 +420,7 @@
     bulkActionNotice = null;
     try {
       await unloadAllModels();
-      bulkActionNotice = "Unload All completed.";
+      bulkActionNotice = "Unload All completed (containers kept running).";
     } catch (e) {
       console.error(e);
       bulkActionError = e instanceof Error ? e.message : String(e);
@@ -97,8 +434,11 @@
     bulkActionError = null;
     bulkActionNotice = null;
     try {
-      await stopCluster();
-      bulkActionNotice = "Stop Cluster completed.";
+      const result = await stopCluster();
+      const summary = (result.message || "Stop Cluster completed").trim();
+      const output = (result.output || "").trim();
+      bulkActionNotice = output ? `${summary}
+${output}` : summary;
     } catch (e) {
       console.error(e);
       bulkActionError = e instanceof Error ? e.message : String(e);
@@ -114,13 +454,97 @@
   function toggleShowUnlisted(): void {
     showUnlistedStore.update((prev) => !prev);
   }
-
-  function toggleRecipeManager(): void {
-    showRecipeManager = !showRecipeManager;
-  }
-
   function getModelDisplay(model: Model): string {
     return $showIdorNameStore === "id" ? model.id : (model.name || model.id);
+  }
+
+  function formatRecipeUpdatedAt(value: string): string {
+    if (!value) return "unknown";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString();
+  }
+
+  function closeRecipeEditor(): void {
+    recipeEditorController?.abort();
+    recipeEditorController = null;
+    recipeEditorModelId = null;
+    recipeEditorRef = "";
+    recipeEditorPath = "";
+    recipeEditorContent = "";
+    recipeEditorOriginal = "";
+    recipeEditorUpdatedAt = "";
+    recipeEditorLoading = false;
+    recipeEditorSaving = false;
+    recipeEditorError = null;
+    recipeEditorNotice = null;
+  }
+
+  async function openRecipeEditor(model: Model): Promise<void> {
+    const recipeRef = (model.recipeRef || "").trim();
+    if (!recipeRef) {
+      recipeEditorError = `No recipeRef configured for ${model.id}`;
+      recipeEditorNotice = null;
+      return;
+    }
+
+    recipeEditorController?.abort();
+    const controller = new AbortController();
+    recipeEditorController = controller;
+
+    recipeEditorModelId = model.id;
+    recipeEditorLoading = true;
+    recipeEditorSaving = false;
+    recipeEditorError = null;
+    recipeEditorNotice = null;
+
+    try {
+      const state = await getRecipeSourceState(recipeRef, controller.signal);
+      recipeEditorRef = state.recipeRef || recipeRef;
+      recipeEditorPath = state.path || "";
+      recipeEditorContent = state.content || "";
+      recipeEditorOriginal = state.content || "";
+      recipeEditorUpdatedAt = state.updatedAt || "";
+    } catch (e) {
+      if (!controller.signal.aborted) {
+        recipeEditorError = e instanceof Error ? e.message : String(e);
+      }
+    } finally {
+      if (recipeEditorController === controller) {
+        recipeEditorController = null;
+      }
+      recipeEditorLoading = false;
+    }
+  }
+
+  async function refreshRecipeEditor(): Promise<void> {
+    if (!recipeEditorRef || !recipeEditorModelId) return;
+    const model = $models.find((m) => m.id === recipeEditorModelId);
+    if (model) {
+      await openRecipeEditor(model);
+    }
+  }
+
+  async function saveRecipeEditor(): Promise<void> {
+    if (!recipeEditorRef || recipeEditorSaving || recipeEditorLoading) return;
+    if (recipeEditorContent === recipeEditorOriginal) return;
+
+    recipeEditorSaving = true;
+    recipeEditorError = null;
+    recipeEditorNotice = null;
+    try {
+      const state = await saveRecipeSourceContent(recipeEditorRef, recipeEditorContent);
+      recipeEditorRef = state.recipeRef || recipeEditorRef;
+      recipeEditorPath = state.path || recipeEditorPath;
+      recipeEditorContent = state.content || recipeEditorContent;
+      recipeEditorOriginal = state.content || recipeEditorContent;
+      recipeEditorUpdatedAt = state.updatedAt || "";
+      recipeEditorNotice = "Recipe YAML guardada correctamente.";
+    } catch (e) {
+      recipeEditorError = e instanceof Error ? e.message : String(e);
+    } finally {
+      recipeEditorSaving = false;
+    }
   }
 
   function clearBenchyPoll(): void {
@@ -270,6 +694,16 @@
               </button>
               <button
                 class="w-full text-left px-4 py-2 hover:bg-secondary-hover flex items-center gap-2"
+                onclick={() => { openAddRecipe(); menuOpen = false; }}
+                disabled={addRecipeBusy || isUnloading || isStoppingCluster}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
+                  <path fill-rule="evenodd" d="M12 3.75a.75.75 0 0 1 .75.75v6.75h6.75a.75.75 0 0 1 0 1.5h-6.75v6.75a.75.75 0 0 1-1.5 0v-6.75H4.5a.75.75 0 0 1 0-1.5h6.75V4.5a.75.75 0 0 1 .75-.75Z" clip-rule="evenodd" />
+                </svg>
+                Add Recipe
+              </button>
+              <button
+                class="w-full text-left px-4 py-2 hover:bg-secondary-hover flex items-center gap-2"
                 onclick={() => { handleUnloadAllModels(); menuOpen = false; }}
                 disabled={isUnloading || isStoppingCluster}
               >
@@ -287,15 +721,6 @@
                   <path fill-rule="evenodd" d="M6.75 6A2.25 2.25 0 0 0 4.5 8.25v7.5A2.25 2.25 0 0 0 6.75 18h10.5a2.25 2.25 0 0 0 2.25-2.25v-7.5A2.25 2.25 0 0 0 17.25 6H6.75Zm2.28 2.22a.75.75 0 0 0-1.06 1.06L10.69 12l-2.72 2.72a.75.75 0 1 0 1.06 1.06L11.75 13.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L12.81 12l2.72-2.72a.75.75 0 1 0-1.06-1.06l-2.72 2.72-2.72-2.72Z" clip-rule="evenodd" />
                 </svg>
                 {isStoppingCluster ? "Stopping..." : "Stop Cluster"}
-              </button>
-              <button
-                class="w-full text-left px-4 py-2 hover:bg-secondary-hover flex items-center gap-2"
-                onclick={() => { toggleRecipeManager(); menuOpen = false; }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
-                  <path d="M4.5 3.75A2.25 2.25 0 0 0 2.25 6v12A2.25 2.25 0 0 0 4.5 20.25h15A2.25 2.25 0 0 0 21.75 18V6A2.25 2.25 0 0 0 19.5 3.75h-15ZM5.25 7.5a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75Zm0 4.5A.75.75 0 0 1 6 11.25h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75Zm.75 3.75a.75.75 0 0 0 0 1.5h7.5a.75.75 0 0 0 0-1.5H6Z" />
-                </svg>
-                {showRecipeManager ? "Hide Recipes" : "Manage Recipes"}
               </button>
             </div>
           {/if}
@@ -325,7 +750,14 @@
                 <path d="M6.75 12c0-.619.107-1.213.304-1.764l-3.1-3.1a11.25 11.25 0 0 0-2.63 4.31c-.12.362-.12.752 0 1.114 1.489 4.467 5.704 7.69 10.675 7.69 1.5 0 2.933-.294 4.242-.827l-2.477-2.477A5.25 5.25 0 0 1 6.75 12Z" />
               </svg>
             {/if}
-            unlisted
+            {$showUnlistedStore ? "Hide Unlisted" : "Show Unlisted"}
+          </button>
+
+          <button class="btn text-base flex items-center gap-2" onclick={openAddRecipe} disabled={addRecipeBusy || isUnloading || isStoppingCluster}>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
+              <path fill-rule="evenodd" d="M12 3.75a.75.75 0 0 1 .75.75v6.75h6.75a.75.75 0 0 1 0 1.5h-6.75v6.75a.75.75 0 0 1-1.5 0v-6.75H4.5a.75.75 0 0 1 0-1.5h6.75V4.5a.75.75 0 0 1 .75-.75Z" clip-rule="evenodd" />
+            </svg>
+            Add Recipe
           </button>
         </div>
         <div class="flex gap-2">
@@ -343,29 +775,79 @@
           </button>
         </div>
       </div>
-
-      <div class="mt-2">
-        <button class="btn text-base flex items-center gap-2" onclick={toggleRecipeManager}>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
-            <path d="M4.5 3.75A2.25 2.25 0 0 0 2.25 6v12A2.25 2.25 0 0 0 4.5 20.25h15A2.25 2.25 0 0 0 21.75 18V6A2.25 2.25 0 0 0 19.5 3.75h-15ZM5.25 7.5a.75.75 0 0 1 .75-.75h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75Zm0 4.5A.75.75 0 0 1 6 11.25h12a.75.75 0 0 1 0 1.5H6a.75.75 0 0 1-.75-.75Zm.75 3.75a.75.75 0 0 0 0 1.5h7.5a.75.75 0 0 0 0-1.5H6Z" />
-          </svg>
-          {showRecipeManager ? "Hide Recipe Manager" : "Manage Recipes"}
-        </button>
-      </div>
     {/if}
   </div>
 
-  {#if showRecipeManager}
-    <div class="shrink-0">
-      <RecipeManager />
-    </div>
-  {/if}
 
   {#if bulkActionError}
     <div class="mt-2 p-2 border border-red-400/30 bg-red-600/10 rounded text-sm text-red-300 break-words">{bulkActionError}</div>
   {/if}
   {#if bulkActionNotice}
-    <div class="mt-2 p-2 border border-green-400/30 bg-green-600/10 rounded text-sm text-green-300 break-words">{bulkActionNotice}</div>
+    <div class="mt-2 p-2 border border-green-400/30 bg-green-600/10 rounded text-sm text-green-300 whitespace-pre-wrap break-words">{bulkActionNotice}</div>
+  {/if}
+  {#if addRecipeError}
+    <div class="mt-2 p-2 border border-red-400/30 bg-red-600/10 rounded text-sm text-red-300 break-words">{addRecipeError}</div>
+  {/if}
+  {#if addRecipeNotice}
+    <div class="mt-2 p-2 border border-green-400/30 bg-green-600/10 rounded text-sm text-green-300 break-words">{addRecipeNotice}</div>
+  {/if}
+
+  {#if addRecipeOpen}
+    <div class="mt-3 p-3 border border-card-border rounded bg-background/40 space-y-3">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-base font-semibold">Añadir receta</h3>
+        <div class="flex gap-2">
+          <button class="btn btn--sm" onclick={refreshAddRecipeTemplateFromFields} disabled={addRecipeBusy}>Regenerate YAML</button>
+          <button class="btn btn--sm" onclick={closeAddRecipe} disabled={addRecipeBusy}>Cancel</button>
+          <button class="btn btn--sm" onclick={submitAddRecipe} disabled={addRecipeBusy}>{addRecipeBusy ? "Creating..." : "Create"}</button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <label class="text-xs text-txtsecondary">Model ID
+          <input class="input mt-1 w-full font-mono text-sm" bind:value={addRecipeModelId} placeholder="Qwen3-Next-Instruct-FP8" />
+        </label>
+        <label class="text-xs text-txtsecondary">Recipe Ref
+          <input class="input mt-1 w-full font-mono text-sm" bind:value={addRecipeRef} placeholder="qwen3-next-instruct-fp8" />
+        </label>
+        <label class="text-xs text-txtsecondary">Display Name
+          <input class="input mt-1 w-full text-sm" bind:value={addRecipeName} placeholder="Qwen3-Next-Instruct-FP8" />
+        </label>
+        <label class="text-xs text-txtsecondary">HF Model (useModelName)
+          <input class="input mt-1 w-full font-mono text-sm" bind:value={addRecipeUseModelName} placeholder="Qwen/Qwen3-Next-Instruct-FP8" />
+        </label>
+        <label class="text-xs text-txtsecondary">Mode
+          <select class="mt-1 w-full px-2 py-2 rounded border border-card-border bg-background text-sm" bind:value={addRecipeMode}>
+            <option value="solo">solo</option>
+            <option value="cluster">cluster</option>
+          </select>
+        </label>
+        <label class="text-xs text-txtsecondary">Tensor Parallel
+          <input class="input mt-1 w-full text-sm" type="number" min="1" bind:value={addRecipeTensorParallel} />
+        </label>
+        <label class="text-xs text-txtsecondary">Inference Backend (Container Image)
+          <input class="input mt-1 w-full font-mono text-sm" bind:value={addRecipeContainerImage} placeholder="vllm-node:latest" />
+        </label>
+        <label class="text-xs text-txtsecondary">Nodes (cluster only)
+          <input class="input mt-1 w-full font-mono text-sm" bind:value={addRecipeNodes} placeholder="192.168.200.12,192.168.200.13" />
+        </label>
+      </div>
+
+      <label class="text-xs text-txtsecondary block">Description
+        <input class="input mt-1 w-full text-sm" bind:value={addRecipeDescription} placeholder="Recipe description" />
+      </label>
+      <label class="text-xs text-txtsecondary block">Extra Args
+        <input class="input mt-1 w-full font-mono text-sm" bind:value={addRecipeExtraArgs} placeholder="--gpu-memory-utilization 0.9" />
+      </label>
+      <label class="inline-flex items-center gap-2 text-sm text-txtsecondary">
+        <input type="checkbox" bind:checked={addRecipeUnlisted} />
+        unlisted
+      </label>
+
+      <label class="text-xs text-txtsecondary block">Recipe YAML (saved under ~/swap-laboratories/recipes)
+        <textarea class="mt-1 w-full h-56 px-2 py-2 rounded border border-card-border bg-background font-mono text-xs" bind:value={addRecipeYAML}></textarea>
+      </label>
+    </div>
   {/if}
 
   <div class="flex-1 overflow-y-auto">
@@ -373,7 +855,7 @@
       <thead class="sticky top-0 bg-card z-10">
         <tr class="text-left border-b border-gray-200 dark:border-white/10 bg-surface">
           <th>{$showIdorNameStore === "id" ? "Model ID" : "Name"}</th>
-          <th>Container Image</th>
+          <th>Inference Backend</th>
           <th></th>
           <th>State</th>
         </tr>
@@ -391,6 +873,37 @@
             </td>
             <td class="font-mono text-xs break-all text-txtsecondary w-[28rem] max-w-[28rem]">
               {model.containerImage || "-"}
+              {#if recipeModelByID(model.id)}
+                {@const recipe = recipeModelByID(model.id)}
+                {#if recipe}
+                  <div class="mt-2 space-y-1">
+                    {#if isClusterTensorParallel(recipe)}
+                      <div class="text-[11px] text-txtsecondary">
+                        Inference node: cluster TP {recipe.tensorParallel} (usa múltiples nodos)
+                      </div>
+                    {:else}
+                      <div class="text-[11px] text-txtsecondary">Inference node</div>
+                      <div class="flex items-center gap-2">
+                        <select
+                          class="px-2 py-1 rounded border border-card-border bg-background text-xs font-mono"
+                          value={selectedInferenceNodeByModel[model.id] || ""}
+                          onchange={(event) =>
+                            setInferenceNodeSelection(model.id, (event.currentTarget as HTMLSelectElement).value)}
+                          disabled={!!nodeApplyBusyByModel[model.id]}
+                        >
+                          <option value="">auto (backend default)</option>
+                          {#each clusterNodes as nodeIP}
+                            <option value={nodeIP}>{nodeIP}</option>
+                          {/each}
+                        </select>
+                        <button class="btn btn--sm" onclick={() => applyInferenceNode(model)} disabled={!!nodeApplyBusyByModel[model.id]}>
+                          {nodeApplyBusyByModel[model.id] ? "Saving..." : "Apply Node"}
+                        </button>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              {/if}
             </td>
             <td class="w-auto">
               <div class="flex justify-end gap-2 items-center flex-wrap">
@@ -400,7 +913,6 @@
                   <button class="btn btn--sm" onclick={() => unloadSingleModel(model.id)} disabled={model.state !== "ready" || benchyBusy}>Unload</button>
                 {/if}
 
-
                 <button
                   class="btn btn--sm"
                   onclick={() => openBenchyForModel(model.id)}
@@ -409,13 +921,87 @@
                 >
                   Benchy
                 </button>
+
+                <button
+                  class="btn btn--sm"
+                  onclick={() => openRecipeEditor(model)}
+                  disabled={recipeEditorLoading || recipeEditorSaving || !model.recipeRef}
+                  title={model.recipeRef ? "Edit recipe YAML" : "Model has no recipeRef"}
+                >
+                  Edit Recipe
+                </button>
+
+                <button
+                  class="btn btn--sm"
+                  onclick={() => handleDeleteRecipe(model)}
+                  disabled={!!recipeDeleteBusyByModel[model.id] || recipeEditorSaving}
+                  title="Delete managed recipe/model from config.yaml"
+                >
+                  {recipeDeleteBusyByModel[model.id] ? "Deleting..." : "Delete Recipe"}
+                </button>
               </div>
             </td>
             <td class="w-20">
               <span class="w-16 text-center status status--{model.state}">{model.state}</span>
             </td>
           </tr>
+
+          {#if recipeEditorModelId === model.id}
+            <tr class="border-b border-gray-200">
+              <td colspan="4" class="p-3">
+                <div class="rounded border border-card-border bg-background/40 p-3">
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="text-xs text-txtsecondary break-all">
+                      Recipe: <span class="font-mono">{recipeEditorRef || "-"}</span>
+                      {#if recipeEditorPath}
+                        | File: <span class="font-mono">{recipeEditorPath}</span>
+                      {/if}
+                      {#if recipeEditorUpdatedAt}
+                        | Updated: {formatRecipeUpdatedAt(recipeEditorUpdatedAt)}
+                      {/if}
+                    </div>
+                    <div class="flex gap-2">
+                      <button class="btn btn--sm" onclick={refreshRecipeEditor} disabled={recipeEditorLoading || recipeEditorSaving}>Refresh</button>
+                      <button class="btn btn--sm" onclick={saveRecipeEditor} disabled={recipeEditorLoading || recipeEditorSaving || recipeEditorContent === recipeEditorOriginal}>
+                        {recipeEditorSaving ? "Saving..." : "Save"}
+                      </button>
+                      <button class="btn btn--sm" onclick={closeRecipeEditor} disabled={recipeEditorSaving}>Close</button>
+                    </div>
+                  </div>
+
+                  {#if recipeEditorError}
+                    <div class="mt-2 p-2 border border-red-400/30 bg-red-600/10 rounded text-sm text-red-300 break-words">{recipeEditorError}</div>
+                  {/if}
+                  {#if recipeEditorNotice}
+                    <div class="mt-2 p-2 border border-green-400/30 bg-green-600/10 rounded text-sm text-green-300 break-words">{recipeEditorNotice}</div>
+                  {/if}
+
+                  <textarea
+                    class="mt-2 w-full min-h-[280px] px-2 py-2 rounded border border-card-border bg-background font-mono text-xs leading-5"
+                    bind:value={recipeEditorContent}
+                    spellcheck="false"
+                    disabled={recipeEditorLoading || recipeEditorSaving}
+                  ></textarea>
+                  {#if recipeEditorLoading}
+                    <div class="mt-2 text-xs text-txtsecondary">Loading recipe source...</div>
+                  {/if}
+                </div>
+              </td>
+            </tr>
+          {/if}
         {/each}
+
+        {#if filteredModels.regularModels.length === 0 && Object.keys(filteredModels.peerModelsByPeerId).length === 0}
+          <tr class="border-b border-gray-200 dark:border-white/10">
+            <td colspan="4" class="py-6 text-center text-sm text-txtsecondary">
+              {$models.length === 0
+                ? "No hay modelos cargados."
+                : ($showUnlistedStore
+                    ? "No hay modelos visibles."
+                    : "No hay modelos visibles con el filtro actual (unlisted ocultos).")}
+            </td>
+          </tr>
+        {/if}
       </tbody>
     </table>
 

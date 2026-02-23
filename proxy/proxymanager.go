@@ -168,6 +168,8 @@ func newProxyManager(proxyConfig config.Config, configPath string) *ProxyManager
 		peerProxy = nil
 	}
 
+	proxyConfig = normalizeLegacyVLLMConfigCommands(proxyConfig)
+
 	pm := &ProxyManager{
 		config:     proxyConfig,
 		configPath: strings.TrimSpace(configPath),
@@ -197,6 +199,7 @@ func newProxyManager(proxyConfig config.Config, configPath string) *ProxyManager
 	}
 
 	pm.loadRecipesBackendOverride()
+	pm.loadHFHubPathOverride()
 
 	// create the process groups
 	for groupID := range proxyConfig.Groups {

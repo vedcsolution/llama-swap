@@ -25,39 +25,36 @@ import (
 )
 
 const (
-	recipesBackendDirEnv              = "LLAMA_SWAP_RECIPES_BACKEND_DIR"
-	recipesBackendOverrideFileEnv     = "LLAMA_SWAP_RECIPES_BACKEND_OVERRIDE_FILE"
-	hfDownloadScriptPathEnv           = "LLAMA_SWAP_HF_DOWNLOAD_SCRIPT"
-	llamacppHFDownloadScriptPathEnv   = "LLAMA_SWAP_LLAMACPP_HF_DOWNLOAD_SCRIPT"
-	hfHubPathEnv                      = "LLAMA_SWAP_HF_HUB_PATH"
-	recipesLocalDirEnv                = "LLAMA_SWAP_LOCAL_RECIPES_DIR"
-	trtllmSourceImageOverrideFile     = ".llama-swap-trtllm-source-image"
-	nvidiaSourceImageOverrideFile     = ".llama-swap-nvidia-source-image"
-	llamacppSourceImageOverrideFile   = ".llama-swap-llamacpp-source-image"
-	defaultRecipesBackendSubdir       = "spark-vllm-docker"
-	defaultRecipesBackendAvarokSubdir = "spark-vllm-avarok"
-	defaultRecipesBackendLlamaSubdir  = "spark-llama-cpp"
-	defaultRecipesLocalSubdir         = "llama-swap/recipes"
-	defaultRecipeGroupName            = "managed-recipes"
-	defaultTRTLLMImageTag             = "trtllm-node"
-	defaultTRTLLMSourceImage          = "nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc3"
-	defaultNVIDIAImageTag             = "nvcr.io/nvidia/vllm:26.01-py3"
-	defaultNVIDIASourceImage          = "nvcr.io/nvidia/vllm:26.01-py3"
-	defaultLLAMACPPSparkSourceImage   = "llama-cpp-spark:last"
-	trtllmDeploymentGuideURL          = "https://build.nvidia.com/spark/trt-llm/stacked-sparks"
-	nvidiaDeploymentGuideURL          = "https://nvidia.github.io/spark-rapids-docs/"
-	defaultHFDownloadScriptName       = "hf-download.sh"
-	defaultLLAMACPPHFDownloadScript   = "proxy/scripts/llamacpp-hf-download.sh"
-	defaultHFHubRelativePath          = ".cache/huggingface/hub"
-	defaultLLAMACPPHFModel            = "unsloth/Qwen3-Next-80B-A3B-Thinking-GGUF"
-	defaultLLAMACPPHFIncludePattern   = "*Q8_0*.gguf"
-	llamacppDeploymentGuideURL        = "https://github.com/ggml-org/llama.cpp/tree/master/examples/server"
-	recipeMetadataKey                 = "recipe_ui"
-	recipeMetadataManagedField        = "managed"
-	nvcrProxyAuthURL                  = "https://nvcr.io/proxy_auth?scope=repository:nvidia/tensorrt-llm/release:pull"
-	nvcrTagsListURL                   = "https://nvcr.io/v2/nvidia/tensorrt-llm/release/tags/list?n=2000"
-	nvidiaNGCAPIURL                   = "https://catalog.ngc.nvidia.com/api/v3/orgs/nvidia/containers/vllm/versions"
-	nvidiaNGCBaseURL                  = "https://catalog.ngc.nvidia.com/orgs/nvidia/containers/vllm"
+	recipesBackendDirEnv            = "LLAMA_SWAP_RECIPES_BACKEND_DIR"
+	recipesCatalogDirEnv            = "LLAMA_SWAP_RECIPES_DIR"
+	recipesBackendOverrideFileEnv   = "LLAMA_SWAP_RECIPES_BACKEND_OVERRIDE_FILE"
+	hfDownloadScriptPathEnv         = "LLAMA_SWAP_HF_DOWNLOAD_SCRIPT"
+	hfHubPathOverrideFileEnv        = "LLAMA_SWAP_HF_HUB_PATH_OVERRIDE_FILE"
+	hfHubPathEnv                    = "LLAMA_SWAP_HF_HUB_PATH"
+	recipesLocalDirEnv              = "LLAMA_SWAP_LOCAL_RECIPES_DIR"
+	trtllmSourceImageOverrideFile   = ".llama-swap-trtllm-source-image"
+	nvidiaSourceImageOverrideFile   = ".llama-swap-nvidia-source-image"
+	llamacppSourceImageOverrideFile = ".llama-swap-llamacpp-source-image"
+	defaultRecipesBackendSubdir     = "swap-laboratories/backend/spark-vllm-docker"
+	defaultRecipesCatalogSubdir     = "recipes"
+	defaultRecipesLocalSubdir       = "llama-swap/recipes"
+	defaultRecipeGroupName          = "managed-recipes"
+	defaultTRTLLMImageTag           = "trtllm-node"
+	defaultTRTLLMSourceImage        = "nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc3"
+	defaultNVIDIAImageTag           = "nvcr.io/nvidia/vllm:26.01-py3"
+	defaultNVIDIASourceImage        = "nvcr.io/nvidia/vllm:26.01-py3"
+	defaultLLAMACPPSparkSourceImage = "llama-cpp-spark:last"
+	trtllmDeploymentGuideURL        = "https://build.nvidia.com/spark/trt-llm/stacked-sparks"
+	nvidiaDeploymentGuideURL        = "https://nvidia.github.io/spark-rapids-docs/"
+	defaultHFDownloadScriptName     = "hf-download.sh"
+	defaultHFHubRelativePath        = ".cache/huggingface/hub"
+	llamacppDeploymentGuideURL      = "https://github.com/ggml-org/llama.cpp/tree/master/examples/server"
+	recipeMetadataKey               = "recipe_ui"
+	recipeMetadataManagedField      = "managed"
+	nvcrProxyAuthURL                = "https://nvcr.io/proxy_auth?scope=repository:nvidia/tensorrt-llm/release:pull"
+	nvcrTagsListURL                 = "https://nvcr.io/v2/nvidia/tensorrt-llm/release/tags/list?n=2000"
+	nvidiaNGCAPIURL                 = "https://catalog.ngc.nvidia.com/api/v3/orgs/nvidia/containers/vllm/versions"
+	nvidiaNGCBaseURL                = "https://catalog.ngc.nvidia.com/orgs/nvidia/containers/vllm"
 )
 
 var (
@@ -67,14 +64,19 @@ var (
 	recipeTemplateVarRe      = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
 	trtllmSourceImageRe      = regexp.MustCompile(`(?m)^SOURCE_IMAGE="([^"]+)"`)
 	trtllmTagVersionRe       = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:rc(\d+))?(?:\.post(\d+))?$`)
+	hfHubPathOverrideMu      sync.RWMutex
 	recipesBackendOverrideMu sync.RWMutex
 	recipesBackendOverride   string
+	hfHubPathOverride        string
 )
 
 type recipeCatalogMeta struct {
 	Name        string         `yaml:"name"`
 	Description string         `yaml:"description"`
 	Model       string         `yaml:"model"`
+	Runtime     string         `yaml:"runtime"`
+	Backend     string         `yaml:"backend"`
+	RecipeRef   string         `yaml:"recipe_ref"`
 	SoloOnly    bool           `yaml:"solo_only"`
 	ClusterOnly bool           `yaml:"cluster_only"`
 	Defaults    map[string]any `yaml:"defaults"`
@@ -85,6 +87,8 @@ type RecipeCatalogItem struct {
 	ID                    string `json:"id"`
 	Ref                   string `json:"ref"`
 	Path                  string `json:"path"`
+	BackendDir            string `json:"backendDir,omitempty"`
+	BackendKind           string `json:"backendKind,omitempty"`
 	Name                  string `json:"name"`
 	Description           string `json:"description"`
 	Model                 string `json:"model"`
@@ -200,9 +204,11 @@ type setRecipeBackendRequest struct {
 }
 
 type recipeBackendActionRequest struct {
-	Action      string `json:"action"`
-	SourceImage string `json:"sourceImage,omitempty"`
-	HFModel     string `json:"hfModel,omitempty"`
+	Action         string `json:"action"`
+	SourceImage    string `json:"sourceImage,omitempty"`
+	HFModel        string `json:"hfModel,omitempty"`
+	HFFormat       string `json:"hfFormat,omitempty"`
+	HFQuantization string `json:"hfQuantization,omitempty"`
 }
 
 type recipeBackendActionResponse struct {
@@ -240,8 +246,31 @@ type recipeBackendHFModelsResponse struct {
 	Models  []recipeBackendHFModel `json:"models"`
 }
 
+type setRecipeBackendHFHubPathRequest struct {
+	HubPath string `json:"hubPath"`
+}
+
 type deleteRecipeBackendHFModelRequest struct {
 	CacheDir string `json:"cacheDir"`
+}
+
+type recipeSourceState struct {
+	RecipeID  string `json:"recipeId"`
+	RecipeRef string `json:"recipeRef"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	UpdatedAt string `json:"updatedAt,omitempty"`
+}
+
+type recipeSourceUpdateRequest struct {
+	RecipeRef string `json:"recipeRef"`
+	Content   string `json:"content"`
+}
+
+type recipeSourceCreateRequest struct {
+	RecipeRef string `json:"recipeRef"`
+	Content   string `json:"content"`
+	Overwrite bool   `json:"overwrite"`
 }
 
 func (pm *ProxyManager) apiGetRecipeState(c *gin.Context) {
@@ -262,87 +291,58 @@ func (pm *ProxyManager) apiGetRecipeBackendActionStatus(c *gin.Context) {
 }
 
 func (pm *ProxyManager) apiSetRecipeBackend(c *gin.Context) {
-	var req setRecipeBackendRequest
+	// Backend selection is intentionally disabled. We keep this endpoint for
+	// compatibility with older UI clients and always return the current state.
+	c.JSON(http.StatusOK, pm.recipeBackendState())
+}
+
+func (pm *ProxyManager) apiListRecipeBackendHFModels(c *gin.Context) {
+	state, err := listRecipeBackendHFModels()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, state)
+}
+
+func (pm *ProxyManager) apiSetRecipeBackendHFHubPath(c *gin.Context) {
+	var req setRecipeBackendHFHubPathRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
 		return
 	}
 
-	previousKind := detectRecipeBackendKind(recipesBackendDir())
-	desired := expandLeadingTilde(strings.TrimSpace(req.BackendDir))
-	if desired != "" {
-		abs, err := filepath.Abs(desired)
-		if err == nil {
-			desired = abs
-		}
-		if stat, err := os.Stat(desired); err != nil || !stat.IsDir() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("backend dir not found: %s", desired)})
+	hubPath := expandLeadingTilde(strings.TrimSpace(req.HubPath))
+	if hubPath != "" {
+		absPath, err := filepath.Abs(hubPath)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid hubPath: %v", err)})
 			return
 		}
-		if _, err := os.Stat(filepath.Join(desired, "run-recipe.sh")); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("run-recipe.sh not found in backend: %s", desired)})
+		hubPath = absPath
+
+		if stat, err := os.Stat(hubPath); err == nil {
+			if !stat.IsDir() {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "hubPath must be a directory"})
+				return
+			}
+		} else if errors.Is(err, fs.ErrNotExist) {
+			if mkErr := os.MkdirAll(hubPath, 0755); mkErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create hubPath: %v", mkErr)})
+				return
+			}
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to access hubPath: %v", err)})
 			return
 		}
-		if _, err := os.Stat(filepath.Join(desired, "recipes")); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("recipes dir not found in backend: %s", desired)})
-			return
-		}
 	}
 
-	setRecipesBackendOverride(desired)
-	if err := pm.persistRecipesBackendOverride(desired); err != nil {
+	setHFHubPathOverride(hubPath)
+	if err := pm.persistHFHubPathOverride(hubPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	nextKind := detectRecipeBackendKind(recipesBackendDir())
-	if err := pm.switchRecipeBackendConfig(previousKind, nextKind); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if err := pm.syncRecipeBackendMacros(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if err := pm.persistActiveConfigForBackend(nextKind); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if nextKind == "trtllm" {
-		backendDir := strings.TrimSpace(recipesBackendDir())
-		if backendDir != "" {
-			image := resolveTRTLLMSourceImage(backendDir, "")
-			if err := persistTRTLLMSourceImage(backendDir, image); err != nil {
-				pm.proxyLogger.Warnf("failed to persist trtllm source image override dir=%s err=%v", backendDir, err)
-			}
-		}
-	}
-
-	if nextKind == "nvidia" {
-		backendDir := strings.TrimSpace(recipesBackendDir())
-		if backendDir != "" {
-			image := resolveNVIDIASourceImage(backendDir, "")
-			if err := persistNVIDIASourceImage(backendDir, image); err != nil {
-				pm.proxyLogger.Warnf("failed to persist nvidia source image override dir=%s err=%v", backendDir, err)
-			}
-		}
-	}
-
-	if nextKind == "llamacpp" {
-		backendDir := strings.TrimSpace(recipesBackendDir())
-		if backendDir != "" {
-			image := resolveLLAMACPPSourceImage(backendDir, "")
-			if err := persistLLAMACPPSourceImage(backendDir, image); err != nil {
-				pm.proxyLogger.Warnf("failed to persist llamacpp source image override dir=%s err=%v", backendDir, err)
-			}
-		}
-	}
-
-	c.JSON(http.StatusOK, pm.recipeBackendState())
-}
-
-func (pm *ProxyManager) apiListRecipeBackendHFModels(c *gin.Context) {
 	state, err := listRecipeBackendHFModels()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -780,28 +780,9 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Minute)
 		defer cancel()
 		cmd = exec.CommandContext(ctx, "docker", "pull", nvidiaImage)
-	case "pull_llamacpp_image":
+	case "build_llamacpp":
 		if backendKind != "llamacpp" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "pull_llamacpp_image is only supported for llama.cpp backend"})
-			return
-		}
-		llamaImage := resolveLLAMACPPSourceImage(backendDir, req.SourceImage)
-		if llamaImage == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "source image is empty"})
-			return
-		}
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Minute)
-		defer cancel()
-		if dockerImageExists(llamaImage) {
-			commandText = fmt.Sprintf("docker image inspect %s", llamaImage)
-			cmd = exec.CommandContext(ctx, "docker", "image", "inspect", llamaImage)
-		} else {
-			commandText = fmt.Sprintf("docker pull %s", llamaImage)
-			cmd = exec.CommandContext(ctx, "docker", "pull", llamaImage)
-		}
-	case "update_llamacpp_image":
-		if backendKind != "llamacpp" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "update_llamacpp_image is only supported for llama.cpp backend"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "build_llamacpp is only supported for llama.cpp backend"})
 			return
 		}
 		llamacppSourceImage = resolveLLAMACPPSourceImage(backendDir, req.SourceImage)
@@ -813,15 +794,30 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to persist llamacpp image: %v", err)})
 			return
 		}
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Minute)
+		autodiscoverPath := clusterAutodiscoverPath()
+		commandText = fmt.Sprintf("build llama.cpp latest release and sync image %s to autodiscovered nodes (%s)", llamacppSourceImage, autodiscoverPath)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Hour)
 		defer cancel()
-		if dockerImageExists(llamacppSourceImage) {
-			commandText = fmt.Sprintf("docker image inspect %s", llamacppSourceImage)
-			cmd = exec.CommandContext(ctx, "docker", "image", "inspect", llamacppSourceImage)
-		} else {
-			commandText = fmt.Sprintf("docker pull %s", llamacppSourceImage)
-			cmd = exec.CommandContext(ctx, "docker", "pull", llamacppSourceImage)
+		cmd = exec.CommandContext(ctx, "bash", "-lc", buildLLAMACPPBuildAndSyncScript(backendDir, autodiscoverPath, llamacppSourceImage))
+	case "sync_llamacpp_image":
+		if backendKind != "llamacpp" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "sync_llamacpp_image is only supported for llama.cpp backend"})
+			return
 		}
+		llamacppSourceImage = resolveLLAMACPPSourceImage(backendDir, req.SourceImage)
+		if llamacppSourceImage == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "source image is empty"})
+			return
+		}
+		if err := persistLLAMACPPSourceImage(backendDir, llamacppSourceImage); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to persist llamacpp image: %v", err)})
+			return
+		}
+		autodiscoverPath := clusterAutodiscoverPath()
+		commandText = fmt.Sprintf("sync llama.cpp image %s on autodiscovered nodes (%s)", llamacppSourceImage, autodiscoverPath)
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Minute)
+		defer cancel()
+		cmd = exec.CommandContext(ctx, "bash", "-lc", buildLLAMACPPSyncScript(autodiscoverPath, llamacppSourceImage))
 	case "download_hf_model":
 		hfModel := strings.TrimSpace(req.HFModel)
 		if hfModel == "" {
@@ -832,31 +828,36 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "hfModel must not contain whitespace"})
 			return
 		}
+		hfFormat := normalizeHFFormat(req.HFFormat)
+		if hfFormat == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "hfFormat must be gguf or safetensors"})
+			return
+		}
+		hfQuantization := strings.TrimSpace(req.HFQuantization)
+		if strings.ContainsAny(hfQuantization, " \t\r\n") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "hfQuantization must not contain whitespace"})
+			return
+		}
+
 		scriptPath := resolveHFDownloadScriptPath()
 		if !backendHasHFDownloadScript() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("hf download script not found or not executable: %s", scriptPath)})
 			return
 		}
-		commandText = fmt.Sprintf("%s %s -c --copy-parallel", scriptPath, hfModel)
+		args := []string{hfModel, "--format", hfFormat}
+		if hfQuantization != "" {
+			args = append(args, "--quantization", hfQuantization)
+		}
+		args = append(args, "-c", "--copy-parallel")
+
+		commandText = commandWithArgs(scriptPath, args...)
 		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
 		defer cancel()
-		cmd = exec.CommandContext(ctx, scriptPath, hfModel, "-c", "--copy-parallel")
-		cmd.Dir = filepath.Dir(scriptPath)
-		ensureCommandPathIncludesUserLocalBin(cmd)
-	case "download_llamacpp_q8_model":
-		if backendKind != "llamacpp" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "download_llamacpp_q8_model is only supported for llama.cpp backend"})
-			return
+		cmd = exec.CommandContext(ctx, scriptPath, args...)
+		hubPath := resolveHFHubPath()
+		if hubPath != "" {
+			cmd.Env = append(os.Environ(), "HF_HUB_PATH="+hubPath, hfHubPathEnv+"="+hubPath)
 		}
-		scriptPath := resolveLLAMACPPHFDownloadScriptPath()
-		if !backendHasLLAMACPPHFDownloadScript() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("llama.cpp hf download script not found or not executable: %s", scriptPath)})
-			return
-		}
-		commandText = fmt.Sprintf("%s %s --include %s", scriptPath, defaultLLAMACPPHFModel, defaultLLAMACPPHFIncludePattern)
-		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Hour)
-		defer cancel()
-		cmd = exec.CommandContext(ctx, scriptPath, defaultLLAMACPPHFModel, "--include", defaultLLAMACPPHFIncludePattern)
 		cmd.Dir = filepath.Dir(scriptPath)
 		ensureCommandPathIncludesUserLocalBin(cmd)
 	default:
@@ -899,7 +900,7 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 	if action == "build_trtllm_image" || action == "update_trtllm_image" {
 		_ = persistTRTLLMSourceImage(backendDir, trtllmSourceImage)
 	}
-	if action == "update_llamacpp_image" {
+	if action == "sync_llamacpp_image" || action == "build_llamacpp" {
 		_ = persistLLAMACPPSourceImage(backendDir, llamacppSourceImage)
 	}
 
@@ -913,6 +914,78 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 		Output:     outputText,
 		DurationMs: durationMs,
 	})
+}
+
+func (pm *ProxyManager) apiGetRecipeSource(c *gin.Context) {
+	recipeRef := strings.TrimSpace(c.Query("recipeRef"))
+	state, err := pm.readRecipeSourceState(recipeRef)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, state)
+}
+
+func (pm *ProxyManager) apiSaveRecipeSource(c *gin.Context) {
+	var req recipeSourceUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+		return
+	}
+
+	recipeRef := strings.TrimSpace(req.RecipeRef)
+	if recipeRef == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "recipeRef is required"})
+		return
+	}
+	if strings.TrimSpace(req.Content) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "recipe content is required"})
+		return
+	}
+
+	var parsed any
+	if err := yaml.Unmarshal([]byte(req.Content), &parsed); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid recipe YAML: %v", err)})
+		return
+	}
+
+	state, err := pm.saveRecipeSourceState(recipeRef, req.Content)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, state)
+}
+
+func (pm *ProxyManager) apiCreateRecipeSource(c *gin.Context) {
+	var req recipeSourceCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+		return
+	}
+
+	recipeRef := strings.TrimSpace(req.RecipeRef)
+	if recipeRef == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "recipeRef is required"})
+		return
+	}
+	if strings.TrimSpace(req.Content) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "recipe content is required"})
+		return
+	}
+
+	var parsed any
+	if err := yaml.Unmarshal([]byte(req.Content), &parsed); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid recipe YAML: %v", err)})
+		return
+	}
+
+	state, err := pm.createRecipeSourceState(recipeRef, req.Content, req.Overwrite)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, state)
 }
 
 func (pm *ProxyManager) apiUpsertRecipeModel(c *gin.Context) {
@@ -951,9 +1024,7 @@ func (pm *ProxyManager) buildRecipeUIState() (RecipeUIState, error) {
 		return RecipeUIState{}, err
 	}
 
-	backendDir := recipesBackendDir()
-	backendKind := detectRecipeBackendKind(backendDir)
-	catalog, catalogByID, err := loadRecipeCatalog(backendDir)
+	catalog, catalogByID, err := loadRecipeCatalog("")
 	if err != nil {
 		return RecipeUIState{}, err
 	}
@@ -972,9 +1043,6 @@ func (pm *ProxyManager) buildRecipeUIState() (RecipeUIState, error) {
 		if !ok {
 			continue
 		}
-		if !recipeEntryTargetsActiveBackend(getMap(modelMap, "metadata"), backendDir) {
-			continue
-		}
 		rm, ok := toRecipeManagedModel(modelID, modelMap, groupsMap)
 		if ok && recipeManagedModelInCatalog(rm, catalogByID) {
 			models = append(models, rm)
@@ -985,8 +1053,8 @@ func (pm *ProxyManager) buildRecipeUIState() (RecipeUIState, error) {
 	groupNames := sortedGroupNames(groupsMap)
 	return RecipeUIState{
 		ConfigPath:  configPath,
-		BackendDir:  backendDir,
-		BackendKind: backendKind,
+		BackendDir:  recipesCatalogPrimaryDir(),
+		BackendKind: "mixed",
 		Recipes:     catalog,
 		Models:      models,
 		Groups:      groupNames,
@@ -995,9 +1063,10 @@ func (pm *ProxyManager) buildRecipeUIState() (RecipeUIState, error) {
 
 func (pm *ProxyManager) recipeBackendState() RecipeBackendState {
 	current, source := recipesBackendDirWithSource()
-	options := recommendedRecipesBackendOptions()
-	options = appendUniquePath(options, current)
-	sort.Strings(options)
+	options := []string{}
+	if strings.TrimSpace(current) != "" {
+		options = append(options, current)
+	}
 
 	kind := detectRecipeBackendKind(current)
 	repoURL := backendGitRemoteOrigin(current)
@@ -1042,9 +1111,7 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 		return RecipeUIState{}, err
 	}
 
-	backendDir := recipesBackendDir()
-	backendKind := detectRecipeBackendKind(backendDir)
-	catalog, catalogByID, err := loadRecipeCatalog(backendDir)
+	catalog, catalogByID, err := loadRecipeCatalog("")
 	if err != nil {
 		return RecipeUIState{}, err
 	}
@@ -1054,6 +1121,14 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	if err != nil {
 		return RecipeUIState{}, err
 	}
+	recipeBackendDir := strings.TrimSpace(catalogRecipe.BackendDir)
+	if recipeBackendDir == "" {
+		recipeBackendDir = recipesBackendDir()
+	}
+	backendKind := detectRecipeBackendKind(recipeBackendDir)
+
+	requestedNodes := strings.TrimSpace(req.Nodes)
+	requestedNodeList := splitAndNormalizeNodes(requestedNodes)
 
 	mode := strings.ToLower(strings.TrimSpace(req.Mode))
 	if mode == "" {
@@ -1062,15 +1137,6 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 		} else {
 			mode = "cluster"
 		}
-	}
-	if mode != "solo" && mode != "cluster" {
-		return RecipeUIState{}, errors.New("mode must be 'solo' or 'cluster'")
-	}
-	if catalogRecipe.SoloOnly && mode != "solo" {
-		return RecipeUIState{}, fmt.Errorf("recipe %s requires solo mode", recipeRefInput)
-	}
-	if catalogRecipe.ClusterOnly && mode != "cluster" {
-		return RecipeUIState{}, fmt.Errorf("recipe %s requires cluster mode", recipeRefInput)
 	}
 
 	tp := req.TensorParallel
@@ -1081,6 +1147,28 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 		tp = 1
 	}
 
+	singleNodeSelection := ""
+	if len(requestedNodeList) == 1 && tp <= 1 {
+		singleNodeSelection = requestedNodeList[0]
+	}
+
+	// For TP=1 with an explicit node, run that model on the selected node directly.
+	if singleNodeSelection != "" {
+		mode = "solo"
+	} else if requestedNodes != "" && tp <= 1 {
+		mode = "cluster"
+	}
+
+	if mode != "solo" && mode != "cluster" {
+		return RecipeUIState{}, errors.New("mode must be 'solo' or 'cluster'")
+	}
+	if catalogRecipe.SoloOnly && mode != "solo" {
+		return RecipeUIState{}, fmt.Errorf("recipe %s requires solo mode", recipeRefInput)
+	}
+	if catalogRecipe.ClusterOnly && mode != "cluster" {
+		return RecipeUIState{}, fmt.Errorf("recipe %s requires cluster mode", recipeRefInput)
+	}
+
 	root, err := loadConfigRawMap(configPath)
 	if err != nil {
 		return RecipeUIState{}, err
@@ -1089,9 +1177,12 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	modelsMap := getMap(root, "models")
 	groupsMap := getMap(root, "groups")
 
-	nodes := strings.TrimSpace(req.Nodes)
+	nodes := requestedNodes
+	if singleNodeSelection != "" {
+		nodes = singleNodeSelection
+	}
 	if mode == "cluster" && nodes == "" {
-		if expr, ok := backendMacroExpr(root, "nodes"); ok {
+		if expr, ok := backendMacroExprForKind(root, backendKind, "nodes"); ok {
 			nodes = expr
 		} else {
 			return RecipeUIState{}, errors.New("nodes is required for cluster mode (backend nodes macro not found)")
@@ -1101,6 +1192,11 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	groupName := strings.TrimSpace(req.Group)
 	if groupName == "" {
 		groupName = defaultRecipeGroupName
+	}
+	// Keep single-node pinned workloads isolated so two models can load/run in
+	// parallel on different nodes without contending in the same swap group.
+	if singleNodeSelection != "" && groupName == defaultRecipeGroupName {
+		groupName = fmt.Sprintf("%s-%s", defaultRecipeGroupName, sanitizeGroupSuffix(singleNodeSelection))
 	}
 
 	name := strings.TrimSpace(req.Name)
@@ -1121,7 +1217,11 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	modelEntry := cloneMap(existing)
 	modelEntry["name"] = name
 	modelEntry["description"] = description
-	modelEntry["proxy"] = "http://127.0.0.1:${PORT}"
+	proxyTarget := "http://127.0.0.1:${PORT}"
+	if singleNodeSelection != "" {
+		proxyTarget = fmt.Sprintf("http://%s:${PORT}", singleNodeSelection)
+	}
+	modelEntry["proxy"] = proxyTarget
 	modelEntry["checkEndpoint"] = "/health"
 	modelEntry["ttl"] = 0
 	modelEntry["useModelName"] = useModelName
@@ -1145,40 +1245,46 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	// If custom container specified, update the recipe file
 	customContainer := strings.TrimSpace(req.ContainerImage)
 	var containerImageToStore string
+	recipePath := strings.TrimSpace(catalogRecipe.Path)
 	if customContainer != "" {
-		recipePath := filepath.Join(recipesBackendDir(), "recipes", resolvedRecipeRef+".yaml")
-		if recipeData, err := os.ReadFile(recipePath); err == nil {
-			var newLines []string
-			containerFound := false
-			for _, line := range strings.Split(string(recipeData), "\n") {
-				if strings.HasPrefix(line, "container:") {
-					newLines = append(newLines, fmt.Sprintf("container: %s", customContainer))
-					containerImageToStore = customContainer
-					containerFound = true
-				} else {
-					newLines = append(newLines, line)
+		if recipePath != "" {
+			if recipeData, err := os.ReadFile(recipePath); err == nil {
+				var newLines []string
+				containerFound := false
+				for _, line := range strings.Split(string(recipeData), "\n") {
+					if strings.HasPrefix(line, "container:") {
+						newLines = append(newLines, fmt.Sprintf("container: %s", customContainer))
+						containerImageToStore = customContainer
+						containerFound = true
+					} else {
+						newLines = append(newLines, line)
+					}
 				}
-			}
-			if containerFound {
-				_ = os.WriteFile(recipePath, []byte(strings.Join(newLines, "\n")), 0644)
+				if containerFound {
+					_ = os.WriteFile(recipePath, []byte(strings.Join(newLines, "\n")), 0644)
+				}
 			}
 		}
 	} else {
 		// Read container from recipe file for metadata
-		recipePath := filepath.Join(recipesBackendDir(), "recipes", resolvedRecipeRef+".yaml")
-		if recipeData, err := os.ReadFile(recipePath); err == nil {
-			for _, line := range strings.Split(string(recipeData), "\n") {
-				if strings.HasPrefix(line, "container:") {
-					containerImageToStore = strings.TrimSpace(strings.TrimPrefix(line, "container:"))
-					break
+		if recipePath != "" {
+			if recipeData, err := os.ReadFile(recipePath); err == nil {
+				for _, line := range strings.Split(string(recipeData), "\n") {
+					if strings.HasPrefix(line, "container:") {
+						containerImageToStore = strings.TrimSpace(strings.TrimPrefix(line, "container:"))
+						break
+					}
 				}
 			}
 		}
 	}
+	if strings.TrimSpace(containerImageToStore) == "" {
+		containerImageToStore = strings.TrimSpace(catalogRecipe.ContainerImage)
+	}
 
 	// In hot-swap mode we keep container/runtime alive, but force-stop any
 	// active serve process before launching a new model to avoid stale state.
-	hotSwapStopExpr := backendStopExpr(backendKind)
+	hotSwapStopExpr := backendStopExprWithContainer(backendKind, containerImageToStore)
 
 	// cmdStop is used by "Unload" / "Unload All" and must stop only the
 	// model runtime without tearing down cluster nodes.
@@ -1186,24 +1292,86 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	stopPrefix := ""
 	if hotSwap {
 		stopPrefix = hotSwapStopExpr + "; "
-	} else if mode == "cluster" {
-		if expr, ok := backendMacroExpr(root, "stop_cluster"); ok {
-			stopPrefix = expr + "; "
-		}
+	}
+	if singleNodeSelection != "" {
+		remoteStopInner := "bash -lc " + strconv.Quote(cmdStopExpr)
+		cmdStopExpr = fmt.Sprintf(
+			"exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no %s %s",
+			quoteForCommand(singleNodeSelection),
+			strconv.Quote(remoteStopInner),
+		)
 	}
 
-	runner := filepath.Join(recipesBackendDir(), "run-recipe.sh")
+	runner := ""
 	if hasMacro(root, "recipe_runner") {
 		runner = "${recipe_runner}"
 	}
+	if runner == "" {
+		configRunner := filepath.Join(filepath.Dir(configPath), "run-recipe.sh")
+		if isExecutableFile(configRunner) {
+			runner = configRunner
+		}
+	}
+	if runner == "" {
+		backendRunner := filepath.Join(recipeBackendDir, "run-recipe.sh")
+		if isExecutableFile(backendRunner) {
+			runner = backendRunner
+		}
+	}
+	if runner == "" {
+		fallbackRunner := filepath.Join(recipesBackendDir(), "run-recipe.sh")
+		if isExecutableFile(fallbackRunner) {
+			runner = fallbackRunner
+		}
+	}
+	if strings.TrimSpace(runner) == "" {
+		return RecipeUIState{}, fmt.Errorf("recipe runner not found for %s", resolvedRecipeRef)
+	}
 
 	var cmd string
-	if hotSwap {
+	if singleNodeSelection != "" {
+		var remoteCmdParts []string
+		remoteCmdParts = append(remoteCmdParts, "exec ", runner, " ", quoteForCommand(resolvedRecipeRef), " --solo")
+		if tp > 0 {
+			remoteCmdParts = append(remoteCmdParts, " --tp ", strconv.Itoa(tp))
+		}
+		remoteCmdParts = append(remoteCmdParts, " --port ${PORT}")
+		if req.NonPrivileged {
+			remoteCmdParts = append(remoteCmdParts, " --non-privileged")
+			if req.MemLimitGb > 0 {
+				remoteCmdParts = append(remoteCmdParts, fmt.Sprintf(" --mem-limit-gb %d", req.MemLimitGb))
+			}
+			if req.MemSwapLimitGb > 0 {
+				remoteCmdParts = append(remoteCmdParts, fmt.Sprintf(" --mem-swap-limit-gb %d", req.MemSwapLimitGb))
+			}
+			if req.PidsLimit > 0 {
+				remoteCmdParts = append(remoteCmdParts, fmt.Sprintf(" --pids-limit %d", req.PidsLimit))
+			}
+			if req.ShmSizeGb > 0 {
+				remoteCmdParts = append(remoteCmdParts, fmt.Sprintf(" --shm-size-gb %d", req.ShmSizeGb))
+			}
+		}
+		if resolvedExtraArgs != "" {
+			remoteCmdParts = append(remoteCmdParts, " ", quoteForCommand(resolvedExtraArgs))
+		}
+		remoteInner := strings.Join(remoteCmdParts, "")
+		remoteOuter := "bash -lc " + strconv.Quote(remoteInner)
+		cmd = fmt.Sprintf(
+			"bash -lc 'exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no %s %s'",
+			quoteForCommand(singleNodeSelection),
+			strconv.Quote(remoteOuter),
+		)
+	} else if hotSwap {
 		renderedVLLMCmd, err := buildHotSwapVLLMCommand(catalogRecipe.Path, tp, resolvedExtraArgs)
 		if err != nil {
 			return RecipeUIState{}, err
 		}
-		cmd = fmt.Sprintf("bash -lc '%s; exec docker exec -i vllm_node bash -i -c %s'", hotSwapStopExpr, strconv.Quote(renderedVLLMCmd))
+		cmd = fmt.Sprintf(
+			"bash -lc '%s; if [ -z \"${VLLM_CONTAINER:-}\" ]; then VLLM_CONTAINER=\"$(%s)\"; fi; if [ -z \"$VLLM_CONTAINER\" ]; then echo \"No running vLLM container found\" >&2; exit 1; fi; exec docker exec -i \"$VLLM_CONTAINER\" bash -i -c %s'",
+			hotSwapStopExpr,
+			buildVLLMContainerDetectExpr(containerImageToStore),
+			strconv.Quote(renderedVLLMCmd),
+		)
 	} else {
 		var cmdParts []string
 		cmdParts = append(cmdParts, "bash -lc '", stopPrefix, "exec ", runner, " ", quoteForCommand(resolvedRecipeRef))
@@ -1254,7 +1422,7 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 		"nodes":                    nodes,
 		"extra_args":               resolvedExtraArgs,
 		"group":                    groupName,
-		"backend_dir":              recipesBackendDir(),
+		"backend_dir":              recipeBackendDir,
 		"hot_swap":                 hotSwap,
 		"container_image":          containerImageToStore,
 		"non_privileged":           req.NonPrivileged,
@@ -1278,8 +1446,12 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	if _, ok := group["swap"]; !ok {
 		group["swap"] = true
 	}
-	if _, ok := group["exclusive"]; !ok {
-		group["exclusive"] = true
+	// Managed recipe groups should not be globally exclusive: models pinned to
+	// different nodes must be able to run at the same time.
+	if groupName == defaultRecipeGroupName || strings.HasPrefix(groupName, defaultRecipeGroupName+"-") {
+		group["exclusive"] = false
+	} else if _, ok := group["exclusive"]; !ok {
+		group["exclusive"] = false
 	}
 	members := append(groupMembers(group), modelID)
 	group["members"] = uniqueStrings(members)
@@ -1291,7 +1463,7 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	}
 
 	if conf, err := config.LoadConfig(configPath); err == nil {
-		pm.applyConfigAndSyncProcessGroups(conf)
+		pm.applyConfigAndSyncProcessGroups(normalizeLegacyVLLMConfigCommands(conf))
 	}
 	return pm.buildRecipeUIState()
 }
@@ -1324,7 +1496,7 @@ func (pm *ProxyManager) deleteRecipeModel(modelID string) (RecipeUIState, error)
 	}
 
 	if conf, err := config.LoadConfig(configPath); err == nil {
-		pm.applyConfigAndSyncProcessGroups(conf)
+		pm.applyConfigAndSyncProcessGroups(normalizeLegacyVLLMConfigCommands(conf))
 	}
 	return pm.buildRecipeUIState()
 }
@@ -1379,18 +1551,102 @@ func getRecipesBackendOverride() string {
 	return recipesBackendOverride
 }
 
+func setHFHubPathOverride(path string) {
+	hfHubPathOverrideMu.Lock()
+	hfHubPathOverride = strings.TrimSpace(path)
+	hfHubPathOverrideMu.Unlock()
+}
+
+func getHFHubPathOverride() string {
+	hfHubPathOverrideMu.RLock()
+	defer hfHubPathOverrideMu.RUnlock()
+	return hfHubPathOverride
+}
+
+func isRecipeBackendDir(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false
+	}
+	if stat, err := os.Stat(path); err != nil || !stat.IsDir() {
+		return false
+	}
+	if stat, err := os.Stat(filepath.Join(path, "run-recipe.sh")); err != nil || stat.IsDir() {
+		return false
+	}
+	if stat, err := os.Stat(filepath.Join(path, "recipes")); err != nil || !stat.IsDir() {
+		return false
+	}
+	return true
+}
+
+func discoverRecipeBackendsFromRoot(root string) []string {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return nil
+	}
+	root = expandLeadingTilde(root)
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	if stat, err := os.Stat(root); err != nil || !stat.IsDir() {
+		return nil
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(root, entry.Name())
+		if isRecipeBackendDir(candidate) {
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
 func recommendedRecipesBackendOptions() []string {
-	options := make([]string, 0, 6)
-	if home := userHomeDir(); home != "" {
-		options = append(options,
-			filepath.Join(home, defaultRecipesBackendSubdir),
-			filepath.Join(home, defaultRecipesBackendAvarokSubdir),
-			filepath.Join(home, defaultRecipesBackendLlamaSubdir),
-		)
+	options := make([]string, 0, 8)
+	current := strings.TrimSpace(recipesBackendDir())
+	if current != "" {
+		options = append(options, current)
+	}
+	if override := strings.TrimSpace(getRecipesBackendOverride()); override != "" {
+		options = append(options, override)
 	}
 	if v := strings.TrimSpace(os.Getenv(recipesBackendDirEnv)); v != "" {
 		options = append(options, v)
 	}
+
+	roots := make([]string, 0, 8)
+	if current != "" {
+		roots = append(roots, filepath.Dir(current))
+	}
+	if home := userHomeDir(); home != "" {
+		roots = append(roots, filepath.Join(home, "swap-laboratories", "backend"))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		roots = append(roots, filepath.Join(wd, "backend"))
+	}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		roots = append(roots,
+			filepath.Join(exeDir, "backend"),
+			filepath.Join(exeDir, "..", "backend"),
+			filepath.Join(exeDir, "..", "..", "backend"),
+		)
+	}
+
+	for _, root := range uniqueExistingDirs(roots) {
+		options = append(options, discoverRecipeBackendsFromRoot(root)...)
+	}
+
 	return uniqueExistingDirs(options)
 }
 
@@ -1431,15 +1687,52 @@ func backendHasBuildScript(backendDir string) bool {
 }
 
 func resolveHFDownloadScriptPath() string {
+	toAbs := func(path string) string {
+		if path == "" {
+			return ""
+		}
+		if abs, err := filepath.Abs(path); err == nil {
+			return abs
+		}
+		return path
+	}
+
 	if v := strings.TrimSpace(os.Getenv(hfDownloadScriptPathEnv)); v != "" {
-		return expandLeadingTilde(v)
+		return toAbs(expandLeadingTilde(v))
 	}
 
+	candidate := filepath.FromSlash(defaultHFDownloadScriptName)
+	if stat, err := os.Stat(candidate); err == nil && !stat.IsDir() {
+		return toAbs(candidate)
+	}
+
+	if wd, err := os.Getwd(); err == nil {
+		fromWD := filepath.Join(wd, filepath.FromSlash(defaultHFDownloadScriptName))
+		if stat, err := os.Stat(fromWD); err == nil && !stat.IsDir() {
+			return toAbs(fromWD)
+		}
+	}
+
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		for _, c := range []string{
+			filepath.Join(exeDir, filepath.FromSlash(defaultHFDownloadScriptName)),
+			filepath.Join(exeDir, "..", filepath.FromSlash(defaultHFDownloadScriptName)),
+			filepath.Join(exeDir, "..", "..", filepath.FromSlash(defaultHFDownloadScriptName)),
+		} {
+			if stat, err := os.Stat(c); err == nil && !stat.IsDir() {
+				return toAbs(c)
+			}
+		}
+	}
 	if home := userHomeDir(); home != "" {
-		return filepath.Join(home, defaultRecipesBackendSubdir, defaultHFDownloadScriptName)
+		fromRepo := filepath.Join(home, "swap-laboratories", defaultHFDownloadScriptName)
+		if stat, err := os.Stat(fromRepo); err == nil && !stat.IsDir() {
+			return toAbs(fromRepo)
+		}
 	}
 
-	return filepath.Join(defaultRecipesBackendSubdir, defaultHFDownloadScriptName)
+	return toAbs(candidate)
 }
 
 func backendHasHFDownloadScript() bool {
@@ -1453,51 +1746,10 @@ func backendHasHFDownloadScript() bool {
 	return false
 }
 
-func resolveLLAMACPPHFDownloadScriptPath() string {
-	if v := strings.TrimSpace(os.Getenv(llamacppHFDownloadScriptPathEnv)); v != "" {
+func resolveHFHubPath() string {
+	if v := strings.TrimSpace(getHFHubPathOverride()); v != "" {
 		return expandLeadingTilde(v)
 	}
-
-	candidate := filepath.FromSlash(defaultLLAMACPPHFDownloadScript)
-	if stat, err := os.Stat(candidate); err == nil && !stat.IsDir() {
-		return candidate
-	}
-
-	if wd, err := os.Getwd(); err == nil {
-		fromWD := filepath.Join(wd, filepath.FromSlash(defaultLLAMACPPHFDownloadScript))
-		if stat, err := os.Stat(fromWD); err == nil && !stat.IsDir() {
-			return fromWD
-		}
-	}
-
-	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		for _, c := range []string{
-			filepath.Join(exeDir, filepath.FromSlash(defaultLLAMACPPHFDownloadScript)),
-			filepath.Join(exeDir, "..", filepath.FromSlash(defaultLLAMACPPHFDownloadScript)),
-			filepath.Join(exeDir, "..", "..", filepath.FromSlash(defaultLLAMACPPHFDownloadScript)),
-		} {
-			if stat, err := os.Stat(c); err == nil && !stat.IsDir() {
-				return c
-			}
-		}
-	}
-
-	return candidate
-}
-
-func backendHasLLAMACPPHFDownloadScript() bool {
-	scriptPath := strings.TrimSpace(resolveLLAMACPPHFDownloadScriptPath())
-	if scriptPath == "" {
-		return false
-	}
-	if stat, err := os.Stat(scriptPath); err == nil {
-		return !stat.IsDir() && (stat.Mode().Perm()&0111) != 0
-	}
-	return false
-}
-
-func resolveHFHubPath() string {
 	if v := strings.TrimSpace(os.Getenv(hfHubPathEnv)); v != "" {
 		return expandLeadingTilde(v)
 	}
@@ -1636,7 +1888,7 @@ func recipeBackendActionsForKind(kind, backendDir, repoURL string) []RecipeBacke
 		actions = append(actions, RecipeBackendActionInfo{
 			Action:      "download_hf_model",
 			Label:       "Download HF Model",
-			CommandHint: fmt.Sprintf("%s <model> -c --copy-parallel", scriptPath),
+			CommandHint: fmt.Sprintf("%s <model> --format <gguf|safetensors> [--quantization Q8_0|4bit] -c --copy-parallel", scriptPath),
 		})
 	}
 
@@ -1660,24 +1912,16 @@ func recipeBackendActionsForKind(kind, backendDir, repoURL string) []RecipeBacke
 	if kind == "llamacpp" {
 		actions = append(actions,
 			RecipeBackendActionInfo{
-				Action:      "pull_llamacpp_image",
-				Label:       "Pull llama.cpp Image",
-				CommandHint: "docker pull <selected>",
+				Action:      "build_llamacpp",
+				Label:       "Build llama.cpp (latest)",
+				CommandHint: "git fetch tags + checkout latest release + build-llama-cpp-spark.sh + docker save/load to autodiscovered peers",
 			},
 			RecipeBackendActionInfo{
-				Action:      "update_llamacpp_image",
+				Action:      "sync_llamacpp_image",
 				Label:       "Update llama.cpp Image",
-				CommandHint: "docker pull <selected> + persist as new default",
+				CommandHint: "docker pull <selected> on autodiscovered nodes + persist as new default",
 			},
 		)
-		if backendHasLLAMACPPHFDownloadScript() {
-			scriptPath := resolveLLAMACPPHFDownloadScriptPath()
-			actions = append(actions, RecipeBackendActionInfo{
-				Action:      "download_llamacpp_q8_model",
-				Label:       "Download Qwen3 Next Q8_0 (1 node)",
-				CommandHint: fmt.Sprintf("%s %s --include %s", scriptPath, defaultLLAMACPPHFModel, defaultLLAMACPPHFIncludePattern),
-			})
-		}
 		return actions
 	}
 
@@ -2064,6 +2308,21 @@ func (pm *ProxyManager) recipesBackendOverrideFile() string {
 	return ""
 }
 
+func (pm *ProxyManager) hfHubPathOverrideFile() string {
+	if v := strings.TrimSpace(os.Getenv(hfHubPathOverrideFileEnv)); v != "" {
+		return expandLeadingTilde(v)
+	}
+	if pm != nil {
+		if cfgPath := strings.TrimSpace(pm.configPath); cfgPath != "" {
+			return filepath.Join(filepath.Dir(cfgPath), ".hf_hub_path")
+		}
+	}
+	if home := userHomeDir(); home != "" {
+		return filepath.Join(home, ".config", "llama-swap", "hf_hub_path")
+	}
+	return ""
+}
+
 func (pm *ProxyManager) loadRecipesBackendOverride() {
 	path := pm.recipesBackendOverrideFile()
 	if path == "" {
@@ -2080,8 +2339,52 @@ func (pm *ProxyManager) loadRecipesBackendOverride() {
 	setRecipesBackendOverride(value)
 }
 
+func (pm *ProxyManager) loadHFHubPathOverride() {
+	path := pm.hfHubPathOverrideFile()
+	if path == "" {
+		return
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	value := expandLeadingTilde(strings.TrimSpace(string(raw)))
+	if value == "" {
+		return
+	}
+	setHFHubPathOverride(value)
+}
+
 func (pm *ProxyManager) persistRecipesBackendOverride(path string) error {
 	filePath := pm.recipesBackendOverrideFile()
+	if filePath == "" {
+		return nil
+	}
+
+	path = strings.TrimSpace(path)
+	if path == "" {
+		if err := os.Remove(filePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+
+	parent := filepath.Dir(filePath)
+	if parent != "" {
+		if err := os.MkdirAll(parent, 0755); err != nil {
+			return err
+		}
+	}
+
+	tmp := filePath + ".tmp"
+	if err := os.WriteFile(tmp, []byte(path+"\n"), 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filePath)
+}
+
+func (pm *ProxyManager) persistHFHubPathOverride(path string) error {
+	filePath := pm.hfHubPathOverrideFile()
 	if filePath == "" {
 		return nil
 	}
@@ -2220,68 +2523,282 @@ func (pm *ProxyManager) syncRecipeBackendMacros() error {
 	}
 
 	if conf, err := config.LoadConfig(configPath); err == nil {
-		pm.applyConfigAndSyncProcessGroups(conf)
+		pm.applyConfigAndSyncProcessGroups(normalizeLegacyVLLMConfigCommands(conf))
 	}
 	return nil
 }
 
-func loadRecipeCatalog(backendDir string) ([]RecipeCatalogItem, map[string]RecipeCatalogItem, error) {
-	recipesDir := filepath.Join(strings.TrimSpace(backendDir), "recipes")
-	items := make([]RecipeCatalogItem, 0, 8)
-	byID := make(map[string]RecipeCatalogItem)
+func recipesCatalogPrimaryDir() string {
+	dirs := recipesCatalogSearchDirs()
+	if len(dirs) == 0 {
+		return ""
+	}
+	return dirs[0]
+}
 
-	err := filepath.WalkDir(recipesDir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+func recipesCatalogSearchDirs() []string {
+	dirs := make([]string, 0, 8)
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
 		}
-		if d.IsDir() {
-			return nil
+		path = expandLeadingTilde(path)
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
 		}
-		ext := strings.ToLower(filepath.Ext(path))
-		if ext != ".yaml" && ext != ".yml" {
-			return nil
+		if stat, err := os.Stat(path); err == nil && stat.IsDir() {
+			dirs = append(dirs, path)
 		}
+	}
 
-		raw, err := os.ReadFile(path)
+	if v := strings.TrimSpace(os.Getenv(recipesCatalogDirEnv)); v != "" {
+		add(v)
+	}
+
+	if cfgPath := strings.TrimSpace(os.Getenv("LLAMA_SWAP_CONFIG_PATH")); cfgPath != "" {
+		add(filepath.Join(filepath.Dir(expandLeadingTilde(cfgPath)), defaultRecipesCatalogSubdir))
+	}
+
+	if wd, err := os.Getwd(); err == nil {
+		add(filepath.Join(wd, defaultRecipesCatalogSubdir))
+	}
+	if home := userHomeDir(); home != "" {
+		add(filepath.Join(home, "swap-laboratories", defaultRecipesCatalogSubdir))
+	}
+
+	backendRoots := make([]string, 0, 4)
+	if cfgPath := strings.TrimSpace(os.Getenv("LLAMA_SWAP_CONFIG_PATH")); cfgPath != "" {
+		backendRoots = append(backendRoots, filepath.Join(filepath.Dir(expandLeadingTilde(cfgPath)), "backend"))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		backendRoots = append(backendRoots, filepath.Join(wd, "backend"))
+	}
+	if home := userHomeDir(); home != "" {
+		backendRoots = append(backendRoots, filepath.Join(home, "swap-laboratories", "backend"))
+	}
+
+	for _, root := range uniqueExistingDirs(backendRoots) {
+		entries, err := os.ReadDir(root)
 		if err != nil {
-			return err
+			continue
 		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			add(filepath.Join(root, entry.Name(), "recipes"))
+		}
+	}
 
-		var meta recipeCatalogMeta
-		if err := yaml.Unmarshal(raw, &meta); err != nil {
-			return nil // skip malformed recipe files instead of failing whole API
-		}
+	return uniqueExistingDirs(dirs)
+}
 
-		base := filepath.Base(path)
-		id := strings.TrimSuffix(strings.TrimSuffix(base, ".yaml"), ".yml")
-		defaultTP := intFromAny(meta.Defaults["tensor_parallel"])
-		if defaultTP <= 0 {
-			defaultTP = 1
-		}
-		defaultExtraArgs := strings.TrimSpace(stringFromAny(meta.Defaults["extra_args"]))
-		if defaultExtraArgs == "" {
-			defaultExtraArgs = strings.TrimSpace(stringFromAny(meta.Defaults["extraArgs"]))
-		}
+func isExecutableFile(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	return (info.Mode().Perm() & 0o111) != 0
+}
 
-		item := RecipeCatalogItem{
-			ID:                    id,
-			Ref:                   id,
-			Path:                  path,
-			Name:                  strings.TrimSpace(meta.Name),
-			Description:           strings.TrimSpace(meta.Description),
-			Model:                 strings.TrimSpace(meta.Model),
-			SoloOnly:              meta.SoloOnly,
-			ClusterOnly:           meta.ClusterOnly,
-			DefaultTensorParallel: defaultTP,
-			DefaultExtraArgs:      defaultExtraArgs,
-			ContainerImage:        strings.TrimSpace(meta.Container),
+func inferBackendDirFromRecipePath(recipePath string) string {
+	recipePath = strings.TrimSpace(recipePath)
+	if recipePath == "" {
+		return ""
+	}
+	clean := filepath.Clean(recipePath)
+	parts := strings.Split(clean, string(os.PathSeparator))
+	for i := 0; i+2 < len(parts); i++ {
+		if parts[i] != "backend" {
+			continue
 		}
-		items = append(items, item)
-		byID[id] = item
-		return nil
-	})
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, err
+		candidate := filepath.Join(parts[:i+2]...)
+		if isRecipeBackendDir(candidate) {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func resolveKnownBackendByName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	name = expandLeadingTilde(name)
+	if filepath.IsAbs(name) {
+		if isRecipeBackendDir(name) {
+			if abs, err := filepath.Abs(name); err == nil {
+				return abs
+			}
+			return filepath.Clean(name)
+		}
+		return ""
+	}
+
+	backendNames := []string{name}
+	if !strings.HasPrefix(strings.ToLower(name), "spark-") {
+		backendNames = append(backendNames, "spark-"+name)
+	}
+
+	roots := make([]string, 0, 4)
+	if cfgPath := strings.TrimSpace(os.Getenv("LLAMA_SWAP_CONFIG_PATH")); cfgPath != "" {
+		roots = append(roots, filepath.Join(filepath.Dir(expandLeadingTilde(cfgPath)), "backend"))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		roots = append(roots, filepath.Join(wd, "backend"))
+	}
+	if home := userHomeDir(); home != "" {
+		roots = append(roots, filepath.Join(home, "swap-laboratories", "backend"))
+	}
+
+	for _, root := range uniqueExistingDirs(roots) {
+		for _, backendName := range backendNames {
+			candidate := filepath.Join(root, backendName)
+			if isRecipeBackendDir(candidate) {
+				if abs, err := filepath.Abs(candidate); err == nil {
+					return abs
+				}
+				return filepath.Clean(candidate)
+			}
+		}
+	}
+	return ""
+}
+
+func resolveRecipeBackendDirFromMeta(meta recipeCatalogMeta, recipePath, backendDirHint string) string {
+	if backend := resolveKnownBackendByName(meta.Backend); backend != "" {
+		return backend
+	}
+	if backend := inferBackendDirFromRecipePath(recipePath); backend != "" {
+		return backend
+	}
+
+	runtime := strings.ToLower(strings.TrimSpace(meta.Runtime))
+	container := strings.ToLower(strings.TrimSpace(meta.Container))
+	switch {
+	case strings.Contains(runtime, "llama"), strings.Contains(container, "llama-cpp"):
+		if backend := resolveKnownBackendByName("spark-llama-cpp"); backend != "" {
+			return backend
+		}
+	case strings.Contains(runtime, "vllm"), strings.Contains(runtime, "trtllm"), strings.Contains(container, "vllm"):
+		if backend := resolveKnownBackendByName("spark-vllm-docker"); backend != "" {
+			return backend
+		}
+	}
+
+	backendDirHint = strings.TrimSpace(backendDirHint)
+	if backendDirHint != "" && isRecipeBackendDir(backendDirHint) {
+		if abs, err := filepath.Abs(backendDirHint); err == nil {
+			return abs
+		}
+		return filepath.Clean(backendDirHint)
+	}
+
+	fallback := strings.TrimSpace(recipesBackendDir())
+	if fallback != "" && isRecipeBackendDir(fallback) {
+		if abs, err := filepath.Abs(fallback); err == nil {
+			return abs
+		}
+		return filepath.Clean(fallback)
+	}
+	return ""
+}
+
+func loadRecipeCatalog(backendDirHint string) ([]RecipeCatalogItem, map[string]RecipeCatalogItem, error) {
+	searchDirs := recipesCatalogSearchDirs()
+	items := make([]RecipeCatalogItem, 0, 16)
+	byID := make(map[string]RecipeCatalogItem)
+	seenByKey := make(map[string]struct{})
+
+	for _, recipesDir := range searchDirs {
+		err := filepath.WalkDir(recipesDir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(path))
+			if ext != ".yaml" && ext != ".yml" {
+				return nil
+			}
+
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+
+			var meta recipeCatalogMeta
+			if err := yaml.Unmarshal(raw, &meta); err != nil {
+				return nil
+			}
+
+			rel, relErr := filepath.Rel(recipesDir, path)
+			if relErr != nil {
+				rel = filepath.Base(path)
+			}
+			rel = strings.TrimSuffix(strings.TrimSuffix(rel, ".yaml"), ".yml")
+			rel = filepath.ToSlash(rel)
+			id := filepath.Base(rel)
+			ref := strings.TrimSpace(meta.RecipeRef)
+			if ref == "" {
+				ref = rel
+			}
+			if strings.TrimSpace(ref) == "" {
+				ref = id
+			}
+
+			key := strings.ToLower(strings.TrimSpace(id))
+			if key == "" {
+				key = strings.ToLower(strings.TrimSpace(ref))
+			}
+			if _, exists := seenByKey[key]; exists {
+				return nil
+			}
+			seenByKey[key] = struct{}{}
+
+			defaultTP := intFromAny(meta.Defaults["tensor_parallel"])
+			if defaultTP <= 0 {
+				defaultTP = 1
+			}
+			defaultExtraArgs := strings.TrimSpace(stringFromAny(meta.Defaults["extra_args"]))
+			if defaultExtraArgs == "" {
+				defaultExtraArgs = strings.TrimSpace(stringFromAny(meta.Defaults["extraArgs"]))
+			}
+
+			backendDir := resolveRecipeBackendDirFromMeta(meta, path, backendDirHint)
+			item := RecipeCatalogItem{
+				ID:                    id,
+				Ref:                   ref,
+				Path:                  path,
+				BackendDir:            backendDir,
+				BackendKind:           detectRecipeBackendKind(backendDir),
+				Name:                  strings.TrimSpace(meta.Name),
+				Description:           strings.TrimSpace(meta.Description),
+				Model:                 strings.TrimSpace(meta.Model),
+				SoloOnly:              meta.SoloOnly,
+				ClusterOnly:           meta.ClusterOnly,
+				DefaultTensorParallel: defaultTP,
+				DefaultExtraArgs:      defaultExtraArgs,
+				ContainerImage:        strings.TrimSpace(meta.Container),
+			}
+			items = append(items, item)
+
+			byID[item.ID] = item
+			byID[item.Ref] = item
+			byID[path] = item
+			byID[filepath.Clean(path)] = item
+			return nil
+		})
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, err
+		}
 	}
 
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
@@ -2289,35 +2806,198 @@ func loadRecipeCatalog(backendDir string) ([]RecipeCatalogItem, map[string]Recip
 }
 
 func resolveRecipeRef(recipeRef string, catalogByID map[string]RecipeCatalogItem) (string, RecipeCatalogItem, error) {
-	if item, ok := catalogByID[recipeRef]; ok {
+	trimmed := strings.TrimSpace(recipeRef)
+	if trimmed == "" {
+		return "", RecipeCatalogItem{}, errors.New("recipeRef is required")
+	}
+	if item, ok := catalogByID[trimmed]; ok {
 		return item.Ref, item, nil
 	}
 
-	localRecipes := localRecipesDir()
-	candidates := []string{
-		recipeRef,
-		filepath.Join(recipesBackendDir(), "recipes", recipeRef),
-		filepath.Join(recipesBackendDir(), "recipes", recipeRef+".yaml"),
-		filepath.Join(recipesBackendDir(), "recipes", recipeRef+".yml"),
-		filepath.Join(localRecipes, recipeRef),
-		filepath.Join(localRecipes, recipeRef+".yaml"),
-		filepath.Join(localRecipes, recipeRef+".yml"),
+	base := filepath.Base(trimmed)
+	base = strings.TrimSuffix(strings.TrimSuffix(base, ".yaml"), ".yml")
+	if item, ok := catalogByID[base]; ok {
+		return item.Ref, item, nil
 	}
-	for _, c := range candidates {
-		if c == "" {
-			continue
+
+	if stat, err := os.Stat(trimmed); err == nil && !stat.IsDir() {
+		abs := trimmed
+		if resolvedAbs, absErr := filepath.Abs(trimmed); absErr == nil {
+			abs = resolvedAbs
 		}
-		if stat, err := os.Stat(c); err == nil && !stat.IsDir() {
-			item := RecipeCatalogItem{
-				ID:   filepath.Base(strings.TrimSuffix(strings.TrimSuffix(c, ".yaml"), ".yml")),
-				Ref:  c,
-				Path: c,
-				Name: filepath.Base(c),
-			}
-			return c, item, nil
+		baseID := filepath.Base(strings.TrimSuffix(strings.TrimSuffix(abs, ".yaml"), ".yml"))
+		item := RecipeCatalogItem{
+			ID:          baseID,
+			Ref:         baseID,
+			Path:        abs,
+			BackendDir:  resolveRecipeBackendDirFromMeta(recipeCatalogMeta{}, abs, ""),
+			BackendKind: detectRecipeBackendKind(resolveRecipeBackendDirFromMeta(recipeCatalogMeta{}, abs, "")),
+			Name:        filepath.Base(abs),
 		}
+		return item.Ref, item, nil
 	}
+
 	return "", RecipeCatalogItem{}, fmt.Errorf("recipeRef not found: %s", recipeRef)
+}
+
+func resolveCatalogRecipeItem(recipeRef string) (RecipeCatalogItem, error) {
+	catalog, catalogByID, err := loadRecipeCatalog("")
+	if err != nil {
+		return RecipeCatalogItem{}, err
+	}
+	if len(catalog) == 0 {
+		return RecipeCatalogItem{}, errors.New("no recipes found in catalog")
+	}
+
+	trimmed := strings.TrimSpace(recipeRef)
+	if trimmed == "" {
+		return catalog[0], nil
+	}
+	if item, ok := catalogByID[trimmed]; ok {
+		return item, nil
+	}
+
+	normalized := filepath.Clean(trimmed)
+	for _, item := range catalog {
+		if strings.TrimSpace(item.Ref) == trimmed || strings.TrimSpace(item.Path) == trimmed {
+			return item, nil
+		}
+		if filepath.Clean(item.Path) == normalized {
+			return item, nil
+		}
+	}
+
+	return RecipeCatalogItem{}, fmt.Errorf("recipeRef not found in catalog: %s", recipeRef)
+}
+
+func (pm *ProxyManager) readRecipeSourceState(recipeRef string) (recipeSourceState, error) {
+	item, err := resolveCatalogRecipeItem(recipeRef)
+	if err != nil {
+		return recipeSourceState{}, err
+	}
+
+	raw, err := os.ReadFile(item.Path)
+	if err != nil {
+		return recipeSourceState{}, fmt.Errorf("failed to read recipe source: %w", err)
+	}
+
+	state := recipeSourceState{
+		RecipeID:  item.ID,
+		RecipeRef: item.Ref,
+		Path:      item.Path,
+		Content:   string(raw),
+	}
+	if info, err := os.Stat(item.Path); err == nil {
+		state.UpdatedAt = info.ModTime().UTC().Format(time.RFC3339)
+	}
+
+	return state, nil
+}
+
+func (pm *ProxyManager) saveRecipeSourceState(recipeRef string, content string) (recipeSourceState, error) {
+	item, err := resolveCatalogRecipeItem(recipeRef)
+	if err != nil {
+		return recipeSourceState{}, err
+	}
+
+	if err := writeRawFileAtomic(item.Path, []byte(content)); err != nil {
+		return recipeSourceState{}, fmt.Errorf("failed to write recipe source: %w", err)
+	}
+
+	return pm.readRecipeSourceState(item.Ref)
+}
+
+func (pm *ProxyManager) createRecipeSourceState(recipeRef string, content string, overwrite bool) (recipeSourceState, error) {
+	recipeRef = strings.TrimSpace(recipeRef)
+	if recipeRef == "" {
+		return recipeSourceState{}, errors.New("recipeRef is required")
+	}
+
+	if strings.Contains(recipeRef, "..") {
+		return recipeSourceState{}, errors.New("recipeRef cannot contain '..'")
+	}
+
+	refPath := filepath.ToSlash(strings.Trim(strings.TrimSpace(recipeRef), "/"))
+	if refPath == "" {
+		return recipeSourceState{}, errors.New("recipeRef is required")
+	}
+
+	primaryDir := strings.TrimSpace(recipesCatalogPrimaryDir())
+	if primaryDir == "" {
+		return recipeSourceState{}, errors.New("recipes catalog directory not found")
+	}
+	primaryDir = filepath.Clean(primaryDir)
+
+	relPath := filepath.Clean(filepath.FromSlash(refPath))
+	if relPath == "." || relPath == string(os.PathSeparator) {
+		return recipeSourceState{}, errors.New("invalid recipeRef")
+	}
+	if strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
+		return recipeSourceState{}, errors.New("recipeRef must be relative to recipes dir")
+	}
+
+	targetPath := filepath.Join(primaryDir, relPath)
+	ext := strings.ToLower(filepath.Ext(targetPath))
+	if ext != ".yaml" && ext != ".yml" {
+		targetPath += ".yaml"
+	}
+	targetPath = filepath.Clean(targetPath)
+
+	prefix := primaryDir + string(os.PathSeparator)
+	if targetPath != primaryDir && !strings.HasPrefix(targetPath, prefix) {
+		return recipeSourceState{}, errors.New("recipe path escapes recipes directory")
+	}
+
+	if info, err := os.Stat(targetPath); err == nil {
+		if info.IsDir() {
+			return recipeSourceState{}, fmt.Errorf("recipe path is a directory: %s", targetPath)
+		}
+		if !overwrite {
+			return recipeSourceState{}, fmt.Errorf("recipe already exists: %s", filepath.Base(targetPath))
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return recipeSourceState{}, err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return recipeSourceState{}, err
+	}
+	if err := writeRawFileAtomic(targetPath, []byte(content)); err != nil {
+		return recipeSourceState{}, fmt.Errorf("failed to create recipe source: %w", err)
+	}
+
+	refNoExt := strings.TrimSuffix(filepath.ToSlash(relPath), filepath.Ext(relPath))
+	if refNoExt == "" {
+		refNoExt = strings.TrimSuffix(strings.TrimSuffix(filepath.Base(targetPath), ".yaml"), ".yml")
+	}
+
+	if state, err := pm.readRecipeSourceState(refNoExt); err == nil {
+		return state, nil
+	}
+
+	state := recipeSourceState{
+		RecipeID:  strings.TrimSuffix(strings.TrimSuffix(filepath.Base(targetPath), ".yaml"), ".yml"),
+		RecipeRef: refNoExt,
+		Path:      targetPath,
+		Content:   content,
+	}
+	if info, err := os.Stat(targetPath); err == nil {
+		state.UpdatedAt = info.ModTime().UTC().Format(time.RFC3339)
+	}
+	return state, nil
+}
+
+func writeRawFileAtomic(path string, raw []byte) error {
+	mode := os.FileMode(0644)
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, raw, mode); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func loadConfigRawMap(configPath string) (map[string]any, error) {
@@ -2427,14 +3107,110 @@ func getBool(m map[string]any, key string) bool {
 	b, parsed := parseAnyBool(v)
 	return parsed && b
 }
+func buildVLLMContainerDetectExpr(containerImage string) string {
+	containerImage = strings.TrimSpace(containerImage)
+	if containerImage != "" {
+		return fmt.Sprintf(
+			"docker ps --filter %s --format \"{{.Names}}\" | head -n 1",
+			strconv.Quote("ancestor="+containerImage),
+		)
+	}
+	return "docker ps --format \"{{.Names}}\t{{.Image}}\" | awk \"BEGIN{IGNORECASE=1} \\$1 ~ /vllm/ || \\$2 ~ /vllm/ {print \\$1; exit}\""
+}
+
+func buildVLLMStopExpr(containerImage string) string {
+	detector := buildVLLMContainerDetectExpr(containerImage)
+	return fmt.Sprintf(
+		"VLLM_CONTAINER=\"$(%s)\"; if [ -n \"$VLLM_CONTAINER\" ]; then docker exec \"$VLLM_CONTAINER\" pkill -f \"vllm serve\" >/dev/null 2>&1 || true; fi",
+		detector,
+	)
+}
+
 func backendStopExpr(kind string) string {
+	return backendStopExprWithContainer(kind, "")
+}
+
+func backendStopExprWithContainer(kind, containerImage string) string {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	switch kind {
 	case "llamacpp":
 		return "docker rm -f llama_cpp_spark_${PORT} >/dev/null 2>&1 || true"
 	default:
-		return "docker exec vllm_node pkill -f \"vllm serve\" >/dev/null 2>&1 || true"
+		return buildVLLMStopExpr(containerImage)
 	}
+}
+
+func legacyRecipeContainerImage(metadata map[string]any) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	if recipeRaw, ok := metadata[recipeMetadataKey]; ok {
+		if recipeMeta, ok := recipeRaw.(map[string]any); ok {
+			if image := strings.TrimSpace(fmt.Sprintf("%v", recipeMeta["container_image"])); image != "" {
+				return image
+			}
+		}
+	}
+	for _, key := range []string{"container_image", "containerImage"} {
+		if image := strings.TrimSpace(fmt.Sprintf("%v", metadata[key])); image != "" {
+			return image
+		}
+	}
+	return ""
+}
+
+func normalizeLegacyVLLMCommand(cmd, containerImage string, requireContainer bool) string {
+	trimmed := strings.TrimSpace(cmd)
+	if trimmed == "" || !strings.Contains(trimmed, "vllm_node") {
+		return cmd
+	}
+
+	rewritten := strings.ReplaceAll(trimmed, "docker exec -i vllm_node", "docker exec -i \"$VLLM_CONTAINER\"")
+	rewritten = strings.ReplaceAll(rewritten, "docker exec vllm_node", "docker exec \"$VLLM_CONTAINER\"")
+	rewritten = strings.ReplaceAll(rewritten, "docker stop vllm_node", "docker stop \"$VLLM_CONTAINER\"")
+
+	detector := buildVLLMContainerDetectExpr(containerImage)
+	guard := "if [ -z \"$VLLM_CONTAINER\" ]; then exit 0; fi; "
+	if requireContainer {
+		guard = "if [ -z \"$VLLM_CONTAINER\" ]; then echo \"No running vLLM container found\" >&2; exit 1; fi; "
+	}
+	prefix := fmt.Sprintf("VLLM_CONTAINER=\"$(%s)\"; %s", detector, guard)
+
+	const shellPrefix = "bash -lc '"
+	if strings.HasPrefix(rewritten, shellPrefix) && strings.HasSuffix(rewritten, "'") {
+		inner := strings.TrimSuffix(strings.TrimPrefix(rewritten, shellPrefix), "'")
+		if strings.Contains(inner, "VLLM_CONTAINER=\"$(") {
+			return rewritten
+		}
+		return shellPrefix + prefix + inner + "'"
+	}
+
+	if strings.Contains(rewritten, "VLLM_CONTAINER=\"$(") {
+		return rewritten
+	}
+	return shellPrefix + prefix + rewritten + "'"
+}
+
+func normalizeLegacyVLLMConfigCommands(conf config.Config) config.Config {
+	if len(conf.Models) == 0 {
+		return conf
+	}
+
+	defaultContainerImage := ""
+	if raw, ok := conf.Macros.Get("vllm_container_image"); ok {
+		defaultContainerImage = strings.TrimSpace(fmt.Sprintf("%v", raw))
+	}
+
+	for modelID, modelCfg := range conf.Models {
+		containerImage := legacyRecipeContainerImage(modelCfg.Metadata)
+		if containerImage == "" {
+			containerImage = defaultContainerImage
+		}
+		modelCfg.Cmd = normalizeLegacyVLLMCommand(modelCfg.Cmd, containerImage, true)
+		modelCfg.CmdStop = normalizeLegacyVLLMCommand(modelCfg.CmdStop, containerImage, false)
+		conf.Models[modelID] = modelCfg
+	}
+	return conf
 }
 
 func hasMacro(root map[string]any, name string) bool {
@@ -2444,12 +3220,15 @@ func hasMacro(root map[string]any, name string) bool {
 }
 
 func backendMacroExpr(root map[string]any, suffix string) (string, bool) {
+	return backendMacroExprForKind(root, detectRecipeBackendKind(recipesBackendDir()), suffix)
+}
+
+func backendMacroExprForKind(root map[string]any, kind string, suffix string) (string, bool) {
 	suffix = strings.TrimSpace(suffix)
 	if suffix == "" {
 		return "", false
 	}
 
-	kind := detectRecipeBackendKind(recipesBackendDir())
 	candidates := make([]string, 0, 8)
 	seen := map[string]struct{}{}
 	add := func(name string) {
@@ -2497,28 +3276,37 @@ func ensureRecipeMacros(root map[string]any, configPath string) {
 		macros["user_home"] = "${env.HOME}"
 	}
 
-	backendDir := strings.TrimSpace(recipesBackendDir())
-	if backendDir != "" {
-		backendDir = expandLeadingTilde(backendDir)
-		if abs, err := filepath.Abs(backendDir); err == nil {
-			backendDir = abs
-		}
-
-		// Keep these as concrete paths so config validation is stable regardless
-		// of YAML map key ordering when the file is regenerated.
-		macros["spark_root"] = backendDir
-		macros["recipe_runner"] = filepath.Join(backendDir, "run-recipe.sh")
-	}
-
 	cfgPath := strings.TrimSpace(configPath)
 	if cfgPath != "" {
 		llamaRoot := filepath.Dir(cfgPath)
 		if abs, err := filepath.Abs(llamaRoot); err == nil {
 			llamaRoot = abs
 		}
+		macros["spark_root"] = llamaRoot
+		dispatchRunner := filepath.Join(llamaRoot, "run-recipe.sh")
+		if isExecutableFile(dispatchRunner) {
+			macros["recipe_runner"] = dispatchRunner
+		}
 		macros["llama_root"] = llamaRoot
-	} else if _, ok := macros["llama_root"]; !ok {
+	} else {
+		if _, ok := macros["llama_root"]; !ok {
+			macros["llama_root"] = "${user_home}/llama-swap"
+		}
+		if _, ok := macros["spark_root"]; !ok {
+			macros["spark_root"] = "${llama_root}"
+		}
+		if _, ok := macros["recipe_runner"]; !ok {
+			macros["recipe_runner"] = "${spark_root}/run-recipe.sh"
+		}
+	}
+	if _, ok := macros["llama_root"]; !ok {
 		macros["llama_root"] = "${user_home}/llama-swap"
+	}
+	if _, ok := macros["spark_root"]; !ok {
+		macros["spark_root"] = "${llama_root}"
+	}
+	if _, ok := macros["recipe_runner"]; !ok {
+		macros["recipe_runner"] = "${spark_root}/run-recipe.sh"
 	}
 
 	root["macros"] = macros
@@ -2649,6 +3437,24 @@ func cleanAliases(aliases []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func sanitizeGroupSuffix(value string) string {
+	v := strings.TrimSpace(strings.ToLower(value))
+	if v == "" {
+		return "node"
+	}
+	// Keep names config-friendly while retaining host/IP readability.
+	v = strings.ReplaceAll(v, ".", "-")
+	v = strings.ReplaceAll(v, ":", "-")
+	v = strings.ReplaceAll(v, "/", "-")
+	v = strings.ReplaceAll(v, "\\", "-")
+	v = strings.ReplaceAll(v, " ", "-")
+	v = strings.Trim(v, "-")
+	if v == "" {
+		return "node"
+	}
+	return v
 }
 
 func toRecipeManagedModel(modelID string, modelMap, groupsMap map[string]any) (RecipeManagedModel, bool) {
@@ -2869,11 +3675,158 @@ func quoteForCommand(s string) string {
 	return s
 }
 
+func splitAndNormalizeNodes(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	seen := make(map[string]struct{}, len(parts))
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		node := strings.TrimSpace(part)
+		if node == "" {
+			continue
+		}
+		if _, ok := seen[node]; ok {
+			continue
+		}
+		seen[node] = struct{}{}
+		out = append(out, node)
+	}
+	return out
+}
+
+func commandWithArgs(command string, args ...string) string {
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, quoteForCommand(command))
+	for _, arg := range args {
+		parts = append(parts, quoteForCommand(arg))
+	}
+	return strings.TrimSpace(strings.Join(parts, " "))
+}
+
+func normalizeHFFormat(raw string) string {
+	v := strings.ToLower(strings.TrimSpace(raw))
+	switch v {
+	case "", "safetensor", "safetensors":
+		return "safetensors"
+	case "gguf":
+		return "gguf"
+	default:
+		return ""
+	}
+}
+
+func buildLLAMACPPBuildAndSyncScript(backendDir, autodiscoverPath, image string) string {
+	return strings.Join([]string{
+		"set -euo pipefail",
+		fmt.Sprintf("BACKEND_DIR=%s", shellQuote(strings.TrimSpace(backendDir))),
+		fmt.Sprintf("AUTODISCOVER=%s", shellQuote(strings.TrimSpace(autodiscoverPath))),
+		fmt.Sprintf("IMAGE=%s", shellQuote(strings.TrimSpace(image))),
+		"LLAMA_DIR=\"$BACKEND_DIR/llama.cpp\"",
+		"BUILD_SCRIPT=\"$BACKEND_DIR/build-llama-cpp-spark.sh\"",
+		"if [ ! -d \"$LLAMA_DIR/.git\" ]; then",
+		"  echo \"llama.cpp source not found: $LLAMA_DIR\" >&2",
+		"  exit 1",
+		"fi",
+		"if [ ! -x \"$BUILD_SCRIPT\" ]; then",
+		"  echo \"build script not found or not executable: $BUILD_SCRIPT\" >&2",
+		"  exit 1",
+		"fi",
+		"echo \"[llama.cpp] fetching tags\"",
+		"git -C \"$LLAMA_DIR\" fetch --tags --force",
+		"LATEST_TAG=\"$(git -C \"$LLAMA_DIR\" tag --sort=-v:refname | head -n1)\"",
+		"if [ -n \"$LATEST_TAG\" ]; then",
+		"  echo \"[llama.cpp] checkout $LATEST_TAG\"",
+		"  git -C \"$LLAMA_DIR\" checkout -f \"$LATEST_TAG\"",
+		"else",
+		"  echo \"[llama.cpp] no tags found, using current branch\"",
+		"fi",
+		"echo \"[llama.cpp] build image $IMAGE\"",
+		"IMAGE_TAG=\"$IMAGE\" \"$BUILD_SCRIPT\"",
+		"if [ ! -f \"$AUTODISCOVER\" ]; then",
+		"  echo \"autodiscover.sh not found: $AUTODISCOVER\" >&2",
+		"  exit 1",
+		"fi",
+		"source \"$AUTODISCOVER\"",
+		"detect_nodes || true",
+		"if [ -z \"${NODES_ARG:-}\" ]; then detect_local_ip || true; fi",
+		"NODES_RAW=\"${NODES_ARG:-${LOCAL_IP:-}}\"",
+		"if [ -z \"$NODES_RAW\" ]; then",
+		"  echo \"No nodes detected for llama.cpp image copy\" >&2",
+		"  exit 1",
+		"fi",
+		"IFS=',' read -r -a NODES <<< \"$NODES_RAW\"",
+		"LOCAL=\"${LOCAL_IP:-}\"",
+		"for node in \"${NODES[@]}\"; do",
+		"  node=\"$(echo \"$node\" | xargs)\"",
+		"  [ -z \"$node\" ] && continue",
+		"  if [ \"$node\" = \"$LOCAL\" ] || [ \"$node\" = \"127.0.0.1\" ] || [ \"$node\" = \"localhost\" ]; then",
+		"    echo \"[local] image available: $IMAGE\"",
+		"  else",
+		"    echo \"[$node] copying image $IMAGE\"",
+		"    docker save \"$IMAGE\" | ssh -o BatchMode=yes -o ConnectTimeout=8 -o ConnectionAttempts=2 -o StrictHostKeyChecking=accept-new \"$node\" \"docker load\"",
+		"  fi",
+		"done",
+	}, "\n")
+}
+
+func buildLLAMACPPSyncScript(autodiscoverPath, image string) string {
+	return strings.Join([]string{
+		"set -euo pipefail",
+		fmt.Sprintf("IMAGE=%s", shellQuote(strings.TrimSpace(image))),
+		fmt.Sprintf("AUTODISCOVER=%s", shellQuote(strings.TrimSpace(autodiscoverPath))),
+		"if [ ! -f \"$AUTODISCOVER\" ]; then",
+		"  echo \"autodiscover.sh not found: $AUTODISCOVER\" >&2",
+		"  exit 1",
+		"fi",
+		"source \"$AUTODISCOVER\"",
+		"detect_nodes || true",
+		"if [ -z \"${NODES_ARG:-}\" ]; then detect_local_ip || true; fi",
+		"NODES_RAW=\"${NODES_ARG:-${LOCAL_IP:-}}\"",
+		"if [ -z \"$NODES_RAW\" ]; then",
+		"  echo \"No nodes detected for llama.cpp image sync\" >&2",
+		"  exit 1",
+		"fi",
+		"IFS=',' read -r -a NODES <<< \"$NODES_RAW\"",
+		"LOCAL=\"${LOCAL_IP:-}\"",
+		"for node in \"${NODES[@]}\"; do",
+		"  node=\"$(echo \"$node\" | xargs)\"",
+		"  [ -z \"$node\" ] && continue",
+		"  if [ \"$node\" = \"$LOCAL\" ] || [ \"$node\" = \"127.0.0.1\" ] || [ \"$node\" = \"localhost\" ]; then",
+		"    echo \"[local] docker pull $IMAGE\"",
+		"    docker pull \"$IMAGE\"",
+		"  else",
+		"    echo \"[$node] docker pull $IMAGE\"",
+		"    ssh -o BatchMode=yes -o ConnectTimeout=8 -o ConnectionAttempts=2 -o StrictHostKeyChecking=accept-new \"$node\" \"docker pull $IMAGE\"",
+		"  fi",
+		"done",
+	}, "\n")
+}
+
 func ensureCommandPathIncludesUserLocalBin(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
 	}
-	pathValue := strings.TrimSpace(os.Getenv("PATH"))
+	env := cmd.Env
+	if len(env) == 0 {
+		env = os.Environ()
+	}
+
+	pathValue := ""
+	pathIndex := -1
+	for i, kv := range env {
+		if strings.HasPrefix(kv, "PATH=") {
+			pathValue = strings.TrimSpace(strings.TrimPrefix(kv, "PATH="))
+			pathIndex = i
+			break
+		}
+	}
+	if pathValue == "" {
+		pathValue = strings.TrimSpace(os.Getenv("PATH"))
+	}
+
 	if home := userHomeDir(); home != "" {
 		localBin := filepath.Join(home, ".local", "bin")
 		if pathValue == "" {
@@ -2882,8 +3835,14 @@ func ensureCommandPathIncludesUserLocalBin(cmd *exec.Cmd) {
 			pathValue = localBin + string(os.PathListSeparator) + pathValue
 		}
 	}
+
 	if pathValue != "" {
-		cmd.Env = append(os.Environ(), "PATH="+pathValue)
+		if pathIndex >= 0 {
+			env[pathIndex] = "PATH=" + pathValue
+		} else {
+			env = append(env, "PATH="+pathValue)
+		}
+		cmd.Env = env
 	}
 }
 

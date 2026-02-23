@@ -81,6 +81,22 @@
       Models
     </a>
     <a
+      href="/hf-models"
+      use:link
+      class="text-gray-600 hover:text-black dark:text-gray-300 dark:hover:text-gray-100 p-1 whitespace-nowrap"
+      class:font-semibold={isActive("/hf-models", $currentRoute)}
+    >
+      HF Models
+    </a>
+    <a
+      href="/images"
+      use:link
+      class="text-gray-600 hover:text-black dark:text-gray-300 dark:hover:text-gray-100 p-1 whitespace-nowrap"
+      class:font-semibold={isActive("/images", $currentRoute)}
+    >
+      Images
+    </a>
+    <a
       href="/activity"
       use:link
       class="text-gray-600 hover:text-black dark:text-gray-300 dark:hover:text-gray-100 p-1 whitespace-nowrap"
@@ -103,14 +119,6 @@
       class:font-semibold={isActive("/cluster", $currentRoute)}
     >
       Cluster
-    </a>
-    <a
-      href="/backend"
-      use:link
-      class="text-gray-600 hover:text-black dark:text-gray-300 dark:hover:text-gray-100 p-1 whitespace-nowrap"
-      class:font-semibold={isActive("/backend", $currentRoute)}
-    >
-      Backend
     </a>
     <a
       href="/editor"

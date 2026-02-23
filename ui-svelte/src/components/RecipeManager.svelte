@@ -1,7 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { deleteRecipeModel, getRecipeUIState, upsertRecipeModel, getDockerContainers } from "../stores/api";
-  import type { RecipeManagedModel, RecipeUIState } from "../lib/types";
+  import {
+    deleteRecipeModel,
+    getDockerContainers,
+    getRecipeUIState,
+    upsertRecipeModel,
+  } from "../stores/api";
+  import type { RecipeCatalogItem, RecipeManagedModel, RecipeUIState } from "../lib/types";
   import { collapseHomePath } from "../lib/pathDisplay";
 
   let loading = true;
@@ -119,6 +124,31 @@
       .filter(Boolean);
   }
 
+  function applyRecipeDefaults(recipe: RecipeCatalogItem): void {
+    recipeRef = recipe.ref || recipe.id;
+    if (!name.trim()) {
+      name = recipe.name || "";
+    }
+    if (!description.trim()) {
+      description = recipe.description || "";
+    }
+    if (recipe.soloOnly) {
+      mode = "solo";
+    } else if (recipe.clusterOnly) {
+      mode = "cluster";
+    }
+    if (recipe.defaultTensorParallel > 0) {
+      tensorParallel = recipe.defaultTensorParallel;
+    }
+    if (!extraArgs.trim() && recipe.defaultExtraArgs) {
+      extraArgs = recipe.defaultExtraArgs;
+    }
+    if (recipe.containerImage) {
+      containerImage = recipe.containerImage;
+    }
+    notice = `Receta seleccionada: ${recipe.id}`;
+  }
+
   async function save(): Promise<void> {
     const id = modelId.trim();
     const recipe = recipeRef.trim();
@@ -210,7 +240,7 @@
       Config:
       <span class="font-mono" title={state?.configPath || ""}>{collapseHomePath(state?.configPath || "")}</span>
       |
-      Backend:
+      Recipes:
       <span class="font-mono" title={state?.backendDir || ""}>{collapseHomePath(state?.backendDir || "")}</span>
     </div>
 
@@ -280,7 +310,8 @@
         <input class="w-full px-2 py-1 rounded border border-card-border bg-background font-mono" bind:value={extraArgs} placeholder="--gpu-mem 0.9 --max-model-len 185000 -- --enable-prefix-caching" />
       </label>
       <label class="text-sm md:col-span-2">
-        <div class="text-txtsecondary mb-1">Container Image</div>
+        <div class="text-txtsecondary mb-1">Inference Backend (Container Image)</div>
+        <div class="text-xs text-txtsecondary mb-1">Este contenedor se usará para inferencia de este modelo</div>
         <input
           class="w-full px-2 py-1 rounded border border-card-border bg-background font-mono"
           bind:value={containerImage}
@@ -318,6 +349,44 @@
     </div>
 
     <div class="mt-4">
+      <h4 class="mb-1">Available Recipes ({state?.recipes.length || 0})</h4>
+      <div class="overflow-x-auto border border-card-border rounded max-h-72">
+        <table class="w-full text-sm">
+          <thead class="bg-surface text-left sticky top-0">
+            <tr>
+              <th class="px-2 py-1">Recipe ID</th>
+              <th class="px-2 py-1">Name</th>
+              <th class="px-2 py-1">Model</th>
+              <th class="px-2 py-1">Mode</th>
+              <th class="px-2 py-1">TP</th>
+              <th class="px-2 py-1">Inference Backend</th>
+              <th class="px-2 py-1">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#if (state?.recipes.length || 0) === 0}
+              <tr><td class="px-2 py-2 text-txtsecondary" colspan="7">No recipes found for this backend filter.</td></tr>
+            {:else}
+              {#each state?.recipes || [] as r (r.id)}
+                <tr class="border-t border-card-border">
+                  <td class="px-2 py-1 font-mono">{r.id}</td>
+                  <td class="px-2 py-1">{r.name || "-"}</td>
+                  <td class="px-2 py-1 font-mono text-xs break-all">{r.model || "-"}</td>
+                  <td class="px-2 py-1">{r.soloOnly ? "solo" : r.clusterOnly ? "cluster" : "both"}</td>
+                  <td class="px-2 py-1">{r.defaultTensorParallel || 1}</td>
+                  <td class="px-2 py-1 font-mono text-xs break-all">{r.containerImage || "-"}</td>
+                  <td class="px-2 py-1">
+                    <button class="btn btn--sm" onclick={() => applyRecipeDefaults(r)} disabled={saving}>Use</button>
+                  </td>
+                </tr>
+              {/each}
+            {/if}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt-4">
       <h4 class="mb-1">Managed Models</h4>
       <div class="overflow-x-auto border border-card-border rounded">
         <table class="w-full text-sm">
@@ -328,12 +397,13 @@
               <th class="px-2 py-1">Mode</th>
               <th class="px-2 py-1">TP</th>
               <th class="px-2 py-1">Group</th>
+              <th class="px-2 py-1">Inference Backend</th>
               <th class="px-2 py-1">Actions</th>
             </tr>
           </thead>
           <tbody>
             {#if (state?.models.length || 0) === 0}
-              <tr><td class="px-2 py-2 text-txtsecondary" colspan="6">No recipe models yet.</td></tr>
+              <tr><td class="px-2 py-2 text-txtsecondary" colspan="7">No recipe models yet.</td></tr>
             {:else}
               {#each state?.models || [] as m (m.modelId)}
                 <tr class="border-t border-card-border">
@@ -342,6 +412,7 @@
                   <td class="px-2 py-1">{m.mode}</td>
                   <td class="px-2 py-1">{m.tensorParallel || 1}</td>
                   <td class="px-2 py-1">{m.group}</td>
+                  <td class="px-2 py-1 font-mono text-xs break-all">{m.containerImage || "-"}</td>
                   <td class="px-2 py-1">
                     <div class="flex gap-1">
                       <button class="btn btn--sm" onclick={() => loadModelIntoForm(m)} disabled={saving}>Edit</button>

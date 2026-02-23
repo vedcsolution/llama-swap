@@ -188,10 +188,6 @@
         {state.overall.toUpperCase()}
       </div>
       <div class="mt-2 text-sm text-txtsecondary">{state.summary}</div>
-      <div class="mt-2 text-xs text-txtsecondary break-all">
-        Backend:
-        <span class="font-mono" title={state.backendDir}>{collapseHomePath(state.backendDir)}</span>
-      </div>
       <div class="text-xs text-txtsecondary break-all">
         autodiscover.sh:
         <span class="font-mono" title={state.autodiscoverPath}>{collapseHomePath(state.autodiscoverPath)}</span>

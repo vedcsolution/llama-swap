@@ -1,9 +1,6 @@
 package proxy
 
 import (
-	"reflect"
-	"slices"
-
 	"github.com/mostlygeek/llama-swap/proxy/config"
 )
 
@@ -12,26 +9,24 @@ import (
 // loadable/unloadable from the UI.
 func (pm *ProxyManager) applyConfigAndSyncProcessGroups(newConfig config.Config) {
 	pm.Lock()
-	oldConfig := pm.config
 	oldGroups := pm.processGroups
 
 	nextGroups := make(map[string]*ProcessGroup, len(newConfig.Groups))
 	groupsToShutdown := make([]*ProcessGroup, 0)
+	processesToShutdown := make([]*Process, 0)
 
-	for groupID := range newConfig.Groups {
-		if oldGroup, ok := oldGroups[groupID]; ok && runtimeGroupCompatible(oldConfig, newConfig, groupID) {
-			oldGroup.Lock()
-			oldGroup.config = newConfig
-			oldGroup.swap = newConfig.Groups[groupID].Swap
-			oldGroup.exclusive = newConfig.Groups[groupID].Exclusive
-			oldGroup.persistent = newConfig.Groups[groupID].Persistent
-			oldGroup.Unlock()
+	for groupID, nextGroupCfg := range newConfig.Groups {
+		if oldGroup, ok := oldGroups[groupID]; ok {
+			removedProcesses := syncExistingGroupRuntime(
+				oldGroup,
+				nextGroupCfg,
+				newConfig,
+				pm.proxyLogger,
+				pm.upstreamLogger,
+			)
+			processesToShutdown = append(processesToShutdown, removedProcesses...)
 			nextGroups[groupID] = oldGroup
 			continue
-		}
-
-		if oldGroup, ok := oldGroups[groupID]; ok {
-			groupsToShutdown = append(groupsToShutdown, oldGroup)
 		}
 		nextGroups[groupID] = NewProcessGroup(groupID, newConfig, pm.proxyLogger, pm.upstreamLogger)
 	}
@@ -46,41 +41,81 @@ func (pm *ProxyManager) applyConfigAndSyncProcessGroups(newConfig config.Config)
 	pm.processGroups = nextGroups
 	pm.Unlock()
 
+	for _, process := range processesToShutdown {
+		process.Shutdown()
+	}
+
 	for _, group := range groupsToShutdown {
 		group.Shutdown()
 	}
 }
 
-func runtimeGroupCompatible(oldConfig, newConfig config.Config, groupID string) bool {
-	oldGroup, ok := oldConfig.Groups[groupID]
-	if !ok {
-		return false
-	}
-	newGroup, ok := newConfig.Groups[groupID]
-	if !ok {
-		return false
-	}
+func syncExistingGroupRuntime(
+	group *ProcessGroup,
+	nextGroupCfg config.GroupConfig,
+	newConfig config.Config,
+	proxyLogger *LogMonitor,
+	upstreamLogger *LogMonitor,
+) []*Process {
+	group.Lock()
+	defer group.Unlock()
 
-	if oldGroup.Swap != newGroup.Swap ||
-		oldGroup.Exclusive != newGroup.Exclusive ||
-		oldGroup.Persistent != newGroup.Persistent {
-		return false
-	}
+	group.config = newConfig
+	group.swap = nextGroupCfg.Swap
+	group.exclusive = nextGroupCfg.Exclusive
+	group.persistent = nextGroupCfg.Persistent
 
-	if !slices.Equal(oldGroup.Members, newGroup.Members) {
-		return false
-	}
+	nextProcesses := make(map[string]*Process, len(nextGroupCfg.Members))
+	nextMembers := make(map[string]struct{}, len(nextGroupCfg.Members))
 
-	for _, member := range newGroup.Members {
-		oldModelCfg, oldResolvedName, okOld := oldConfig.FindConfig(member)
-		newModelCfg, newResolvedName, okNew := newConfig.FindConfig(member)
-		if okOld != okNew || oldResolvedName != newResolvedName {
-			return false
+	for _, member := range nextGroupCfg.Members {
+		modelCfg, resolvedName, found := newConfig.FindConfig(member)
+		if !found {
+			continue
 		}
-		if !reflect.DeepEqual(oldModelCfg, newModelCfg) {
-			return false
+
+		nextMembers[resolvedName] = struct{}{}
+		existing := group.processes[resolvedName]
+		if existing == nil {
+			if fallback := group.processes[member]; fallback != nil {
+				existing = fallback
+			}
+		}
+
+		// Preserve active process objects to avoid losing runtime state when
+		// config reload only reorders members or reassigns ${PORT}.
+		if existing != nil && existing.CurrentState() != StateStopped {
+			nextProcesses[resolvedName] = existing
+			continue
+		}
+
+		processLogger := NewLogMonitorWriter(upstreamLogger)
+		nextProcesses[resolvedName] = NewProcess(
+			resolvedName,
+			newConfig.HealthCheckTimeout,
+			modelCfg,
+			processLogger,
+			proxyLogger,
+		)
+	}
+
+	removedProcesses := make([]*Process, 0)
+	for existingID, process := range group.processes {
+		if _, keep := nextMembers[existingID]; keep {
+			continue
+		}
+		switch process.CurrentState() {
+		case StateStopped, StateShutdown:
+			// Nothing to do.
+		default:
+			removedProcesses = append(removedProcesses, process)
 		}
 	}
 
-	return true
+	group.processes = nextProcesses
+	if _, ok := group.processes[group.lastUsedProcess]; !ok {
+		group.lastUsedProcess = ""
+	}
+
+	return removedProcesses
 }

@@ -14,8 +14,11 @@ import type {
   RecipeBackendActionResponse,
   RecipeBackendActionStatus,
   RecipeBackendHFModelsState,
+  DockerImagesState,
+  DockerImageActionResponse,
   RecipeUIState,
   RecipeUpsertRequest,
+  RecipeSourceState,
   ConfigEditorState,
   ClusterStatusState,
   ClusterDGXUpdateResponse,
@@ -165,15 +168,32 @@ export async function unloadAllModels(): Promise<void> {
   }
 }
 
-export async function stopCluster(): Promise<void> {
+export interface StopClusterResult {
+  message?: string;
+  script?: string;
+  output?: string;
+}
+
+export async function stopCluster(): Promise<StopClusterResult> {
   try {
     const response = await fetch(`/api/cluster/stop`, {
       method: "POST",
     });
-    if (!response.ok) {
-      const msg = await response.text().catch(() => "");
-      throw new Error(msg || `Failed to stop cluster: ${response.status}`);
+    const text = await response.text().catch(() => "");
+    let parsed: StopClusterResult | null = null;
+    try {
+      parsed = text ? (JSON.parse(text) as StopClusterResult) : null;
+    } catch {
+      parsed = null;
     }
+    if (!response.ok) {
+      const errMsg = (parsed as any)?.error || text || `Failed to stop cluster: ${response.status}`;
+      const output = parsed?.output ? `
+
+${parsed.output}` : "";
+      throw new Error(`${errMsg}${output}`);
+    }
+    return parsed || {};
   } catch (error) {
     console.error("Failed to stop cluster:", error);
     throw error;
@@ -316,7 +336,7 @@ export async function getRecipeBackendActionStatus(signal?: AbortSignal): Promis
 
 export async function runRecipeBackendAction(
   action: RecipeBackendAction,
-  opts?: { sourceImage?: string; hfModel?: string },
+  opts?: { sourceImage?: string; hfModel?: string; hfFormat?: "gguf" | "safetensors"; hfQuantization?: string },
 ): Promise<RecipeBackendActionResponse> {
   const response = await fetch(`/api/recipes/backend/action`, {
     method: "POST",
@@ -327,6 +347,8 @@ export async function runRecipeBackendAction(
       action,
       sourceImage: opts?.sourceImage,
       hfModel: opts?.hfModel,
+      hfFormat: opts?.hfFormat,
+      hfQuantization: opts?.hfQuantization,
     }),
   });
 
@@ -353,6 +375,21 @@ export async function getRecipeBackendHFModels(signal?: AbortSignal): Promise<Re
   if (!response.ok) {
     const msg = await response.text().catch(() => "");
     throw new Error(msg || `Failed to fetch HF models: ${response.status}`);
+  }
+  return (await response.json()) as RecipeBackendHFModelsState;
+}
+
+export async function setRecipeBackendHFHubPath(hubPath: string): Promise<RecipeBackendHFModelsState> {
+  const response = await fetch(`/api/recipes/backend/hf-models/path`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ hubPath }),
+  });
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to set HF hub path: ${response.status}`);
   }
   return (await response.json()) as RecipeBackendHFModelsState;
 }
@@ -396,6 +433,49 @@ export async function deleteRecipeModel(modelId: string): Promise<RecipeUIState>
     throw new Error(msg || `Failed to delete recipe model: ${response.status}`);
   }
   return (await response.json()) as RecipeUIState;
+}
+
+export async function getRecipeSourceState(recipeRef: string, signal?: AbortSignal): Promise<RecipeSourceState> {
+  const response = await fetch(`/api/recipes/source?recipeRef=${encodeURIComponent(recipeRef)}`, { signal });
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to fetch recipe source: ${response.status}`);
+  }
+  return (await response.json()) as RecipeSourceState;
+}
+
+export async function saveRecipeSourceContent(recipeRef: string, content: string): Promise<RecipeSourceState> {
+  const response = await fetch(`/api/recipes/source`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ recipeRef, content }),
+  });
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to save recipe source: ${response.status}`);
+  }
+  return (await response.json()) as RecipeSourceState;
+}
+
+export async function createRecipeSource(
+  recipeRef: string,
+  content: string,
+  overwrite = false,
+): Promise<RecipeSourceState> {
+  const response = await fetch(`/api/recipes/source/create`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ recipeRef, content, overwrite }),
+  });
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to create recipe source: ${response.status}`);
+  }
+  return (await response.json()) as RecipeSourceState;
 }
 
 export async function getConfigEditorState(signal?: AbortSignal): Promise<ConfigEditorState> {
@@ -444,6 +524,48 @@ export async function getDockerContainers(): Promise<string[]> {
     throw new Error(`Failed to fetch docker containers: ${response.status}`);
   }
   return await response.json();
+}
+
+export async function getDockerImages(): Promise<DockerImagesState> {
+  const response = await fetch("/api/images/docker");
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to fetch docker images: ${response.status}`);
+  }
+  return (await response.json()) as DockerImagesState;
+}
+
+export async function updateDockerImage(nodeIp: string, reference: string): Promise<DockerImageActionResponse> {
+  const response = await fetch("/api/images/docker/update", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ nodeIp, reference }),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(text || `Failed to update docker image: ${response.status}`);
+  }
+  return (text ? JSON.parse(text) : {}) as DockerImageActionResponse;
+}
+
+export async function deleteDockerImage(
+  nodeIp: string,
+  payload: { id?: string; reference?: string },
+): Promise<DockerImageActionResponse> {
+  const response = await fetch("/api/images/docker/delete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ nodeIp, id: payload.id, reference: payload.reference }),
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(text || `Failed to delete docker image: ${response.status}`);
+  }
+  return (text ? JSON.parse(text) : {}) as DockerImageActionResponse;
 }
 
 export async function getSelectedContainer(): Promise<string> {

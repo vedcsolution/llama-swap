@@ -146,6 +146,8 @@ export interface RecipeCatalogItem {
   soloOnly: boolean;
   clusterOnly: boolean;
   defaultTensorParallel: number;
+  defaultExtraArgs?: string;
+  containerImage?: string;
 }
 
 export interface RecipeManagedModel {
@@ -182,6 +184,14 @@ export interface RecipeUIState {
   groups: string[];
 }
 
+
+export interface RecipeSourceState {
+  recipeId: string;
+  recipeRef: string;
+  path: string;
+  content: string;
+  updatedAt?: string;
+}
 export type RecipeBackendSource = "override" | "env" | "default";
 export type RecipeBackendKind = "vllm" | "sqlang" | "trtllm" | "nvidia" | "llamacpp" | "custom";
 
@@ -195,9 +205,8 @@ export type RecipeBackendAction =
   | "update_trtllm_image"
   | "pull_nvidia_image"
   | "update_nvidia_image"
-  | "pull_llamacpp_image"
-  | "update_llamacpp_image"
-  | "download_llamacpp_q8_model"
+  | "build_llamacpp"
+  | "sync_llamacpp_image"
   | "download_hf_model";
 
 export interface RecipeBackendActionInfo {
@@ -280,6 +289,39 @@ export interface RecipeBackendActionResponse {
   durationMs: number;
 }
 
+export interface DockerImageInfo {
+  reference: string;
+  repository: string;
+  tag: string;
+  id: string;
+  digest?: string;
+  size: string;
+  createdSince: string;
+}
+
+export interface DockerNodeImagesState {
+  nodeIp: string;
+  isLocal: boolean;
+  images: DockerImageInfo[];
+  error?: string;
+}
+
+export interface DockerImagesState {
+  images: DockerImageInfo[];
+  nodes?: DockerNodeImagesState[];
+  discoveryError?: string;
+}
+
+export interface DockerImageActionResponse {
+  action: "update" | "delete" | string;
+  nodeIp: string;
+  isLocal: boolean;
+  command: string;
+  message: string;
+  output?: string;
+  durationMs: number;
+}
+
 export interface RecipeUpsertRequest {
   modelId: string;
   recipeRef: string;
@@ -344,7 +386,6 @@ export interface ClusterStorageState {
 }
 
 export interface ClusterStatusState {
-  backendDir: string;
   autodiscoverPath: string;
   detectedAt: string;
   localIp: string;

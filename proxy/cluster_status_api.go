@@ -48,7 +48,6 @@ type clusterDGXStatus struct {
 }
 
 type clusterStatusState struct {
-	BackendDir       string               `json:"backendDir"`
 	AutodiscoverPath string               `json:"autodiscoverPath"`
 	DetectedAt       string               `json:"detectedAt"`
 	LocalIP          string               `json:"localIp"`
@@ -91,7 +90,6 @@ func (pm *ProxyManager) apiGetClusterStatus(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":            err.Error(),
-			"backendDir":       recipesBackendDir(),
 			"autodiscoverPath": clusterAutodiscoverPath(),
 		})
 		return
@@ -100,14 +98,12 @@ func (pm *ProxyManager) apiGetClusterStatus(c *gin.Context) {
 }
 
 func (pm *ProxyManager) readClusterStatus(parentCtx context.Context) (clusterStatusState, error) {
-	backendDir := recipesBackendDir()
 	autodiscoverPath := clusterAutodiscoverPath()
 	if stat, err := os.Stat(autodiscoverPath); err != nil || stat.IsDir() {
 		return clusterStatusState{}, fmt.Errorf(
-			"autodiscover.sh not found: %s (set %s or %s)",
+			"autodiscover.sh not found: %s (set %s or place autodiscover.sh in repo root)",
 			autodiscoverPath,
 			clusterAutodiscoverPathEnv,
-			recipesBackendDirEnv,
 		)
 	}
 
@@ -204,9 +200,8 @@ func (pm *ProxyManager) readClusterStatus(parentCtx context.Context) (clusterSta
 	}
 
 	summary := buildClusterSummary(overall, len(nodeStatuses), remoteCount, reachableBySSH, detectErrors)
-	storage := buildClusterStorageState(ctx, backendDir, nodeStatuses)
+	storage := buildClusterStorageState(ctx, nodeStatuses)
 	return clusterStatusState{
-		BackendDir:       backendDir,
 		AutodiscoverPath: autodiscoverPath,
 		DetectedAt:       time.Now().UTC().Format(time.RFC3339),
 		LocalIP:          localIP,
@@ -229,13 +224,34 @@ func clusterAutodiscoverPath() string {
 		return v
 	}
 
-	backendDir := recipesBackendDir()
-	primary := filepath.Join(backendDir, "autodiscover.sh")
-	if clusterFileExists(primary) {
-		return primary
+	if wd, err := os.Getwd(); err == nil {
+		candidate := filepath.Join(wd, "autodiscover.sh")
+		if clusterFileExists(candidate) {
+			return candidate
+		}
 	}
 
-	return primary
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		for _, candidate := range []string{
+			filepath.Join(exeDir, "autodiscover.sh"),
+			filepath.Join(exeDir, "..", "autodiscover.sh"),
+			filepath.Join(exeDir, "..", "..", "autodiscover.sh"),
+		} {
+			if clusterFileExists(candidate) {
+				return candidate
+			}
+		}
+	}
+
+	if home := userHomeDir(); home != "" {
+		candidate := filepath.Join(home, "swap-laboratories", "autodiscover.sh")
+		if clusterFileExists(candidate) {
+			return candidate
+		}
+	}
+
+	return "autodiscover.sh"
 }
 
 func clusterFileExists(path string) bool {
@@ -407,8 +423,8 @@ func errorsIsContextCanceled(err error) bool {
 	return strings.Contains(err.Error(), "context deadline exceeded") || strings.Contains(err.Error(), "context canceled")
 }
 
-func buildClusterStorageState(parentCtx context.Context, backendDir string, nodes []clusterNodeStatus) *clusterStorageState {
-	paths := clusterStorageCandidatePaths(backendDir)
+func buildClusterStorageState(parentCtx context.Context, nodes []clusterNodeStatus) *clusterStorageState {
+	paths := clusterStorageCandidatePaths()
 	if len(paths) == 0 || len(nodes) == 0 {
 		return nil
 	}
@@ -511,11 +527,8 @@ func buildClusterStorageState(parentCtx context.Context, backendDir string, node
 	}
 }
 
-func clusterStorageCandidatePaths(backendDir string) []string {
+func clusterStorageCandidatePaths() []string {
 	paths := make([]string, 0, 10)
-	if strings.TrimSpace(backendDir) != "" {
-		paths = append(paths, filepath.Clean(backendDir))
-	}
 
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
 		paths = append(paths,

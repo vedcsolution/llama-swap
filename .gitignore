@@ -29,3 +29,6 @@ ui-svelte/node_modules/
 
 # Local backup artifacts
 *.bak.*
+
+# local helper state
+.hf_hub_path

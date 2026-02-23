@@ -54,6 +54,9 @@ fixes #123
 - Use only one Go build container image on this host: `golang:1.24-bookworm`.
 - Do not use `golang:latest` or multiple Go tags in parallel.
 - Preferred build command:
-  - `docker run --rm -v /home/csolutions_ai/swap-laboratories:/src -w /src golang:1.24-bookworm go build -buildvcs=false -o build/llama-swap .`
+  - `docker run --rm -v $REPO_DIR:/src -w /src golang:1.24-bookworm go build -buildvcs=false -o build/llama-swap .`
+- Cleanup policy for image hygiene:
+  - Remove stale test-bench images (`tb__*`) and extra Go tags (any `golang:*` except `golang:1.24-bookworm`).
+  - Keep runtime images required by recipes (`vllm-node:*`, `vllm-node-mxfp4:*`, `trtllm-node:*`, `llama-cpp-spark:*`).
 - Systemd service must run fork binary from repo path, not global binary:
-  - `ExecStart=/home/csolutions_ai/swap-laboratories/build/llama-swap ...`
+  - `ExecStart=$REPO_DIR/build/llama-swap ...`

@@ -4,10 +4,11 @@
   import Header from "./components/Header.svelte";
   import LogViewer from "./routes/LogViewer.svelte";
   import Models from "./routes/Models.svelte";
+  import HFModels from "./routes/HFModels.svelte";
+  import Images from "./routes/Images.svelte";
   import Activity from "./routes/Activity.svelte";
   import ConfigEditor from "./routes/ConfigEditor.svelte";
   import ClusterStatus from "./routes/ClusterStatus.svelte";
-  import Backend from "./routes/Backend.svelte";
   import Help from "./routes/Help.svelte";
   import Playground from "./routes/Playground.svelte";
   import PlaygroundStub from "./routes/PlaygroundStub.svelte";
@@ -18,9 +19,10 @@
   const routes = {
     "/": PlaygroundStub,
     "/models": Models,
+    "/hf-models": HFModels,
+    "/images": Images,
     "/logs": LogViewer,
     "/cluster": ClusterStatus,
-    "/backend": Backend,
     "/editor": ConfigEditor,
     "/help": Help,
     "/activity": Activity,

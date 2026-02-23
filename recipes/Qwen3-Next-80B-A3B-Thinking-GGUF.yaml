@@ -1,0 +1,20 @@
+model: unsloth/Qwen3-Next-80B-A3B-Thinking-GGUF
+runtime: llama-cpp
+backend: spark-llama-cpp
+min_nodes: 1
+max_nodes: 1
+container: llama-cpp-spark:last
+
+defaults:
+  port: 8000
+  host: 0.0.0.0
+  n_gpu_layers: 99
+  ctx_size: 128000
+
+command: |
+  llama-server \
+      -hf {model} \
+      --host {host} --port {port} \
+      --n-gpu-layers {n_gpu_layers} \
+      --ctx-size {ctx_size} \
+      --flash-attn on --jinja --no-webui

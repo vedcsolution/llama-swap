@@ -6,33 +6,37 @@
     getRecipeBackendHFModels,
     getRecipeBackendState,
     runRecipeBackendAction,
-    setRecipeBackend,
   } from "../stores/api";
-  import type { RecipeBackendAction, RecipeBackendActionStatus, RecipeBackendHFModel, RecipeBackendState } from "../lib/types";
+  import type {
+    RecipeBackendAction,
+    RecipeBackendActionStatus,
+    RecipeBackendHFModel,
+    RecipeBackendState,
+  } from "../lib/types";
   import { collapseHomePath } from "../lib/pathDisplay";
 
   let loading = true;
   let refreshing = false;
-  let saving = false;
   let error: string | null = null;
   let notice: string | null = null;
   let state: RecipeBackendState | null = null;
-  let selected = "";
-  let customPath = "";
-  let useCustom = false;
   let actionRunning = "";
   let actionCommand = "";
   let actionOutput = "";
+
   let selectedTrtllmImage = "";
   let selectedNvidiaImage = "";
   let selectedLlamacppImage = "";
+
   let hfModelName = "QuantTrio/MiniMax-M2-AWQ";
-  const llamacppQuickModel = "unsloth/Qwen3-Next-80B-A3B-Thinking-GGUF";
-  const llamacppQuickQuant = "Q8_0";
+  let hfFormat: "gguf" | "safetensors" = "safetensors";
+  let hfQuantization = "";
+
   let hfModelsLoading = false;
   let deletingHFModel = "";
   let hfHubPath = "";
   let hfModels: RecipeBackendHFModel[] = [];
+
   let backendActionStatus: RecipeBackendActionStatus | null = null;
   let actionStatusTimer: ReturnType<typeof setInterval> | null = null;
   let refreshController: AbortController | null = null;
@@ -50,33 +54,9 @@
   }
 
   function syncSelectionFromState(next: RecipeBackendState): void {
-    if (next.options.includes(next.backendDir)) {
-      selected = next.backendDir;
-      customPath = "";
-      useCustom = false;
-    } else {
-      selected = "";
-      customPath = next.backendDir;
-      useCustom = true;
-    }
-
-    if (next.trtllmImage?.selected) {
-      selectedTrtllmImage = next.trtllmImage.selected;
-    } else {
-      selectedTrtllmImage = "";
-    }
-
-    if (next.nvidiaImage?.selected) {
-      selectedNvidiaImage = next.nvidiaImage.selected;
-    } else {
-      selectedNvidiaImage = "";
-    }
-
-    if (next.llamacppImage?.selected) {
-      selectedLlamacppImage = next.llamacppImage.selected;
-    } else {
-      selectedLlamacppImage = "";
-    }
+    selectedTrtllmImage = next.trtllmImage?.selected || "";
+    selectedNvidiaImage = next.nvidiaImage?.selected || "";
+    selectedLlamacppImage = next.llamacppImage?.selected || "";
   }
 
   function trtllmImageOptions(next: RecipeBackendState | null): string[] {
@@ -91,9 +71,7 @@
     push(next.trtllmImage.selected);
     push(next.trtllmImage.default);
     push(next.trtllmImage.latest);
-    for (const img of next.trtllmImage.available || []) {
-      push(img);
-    }
+    for (const img of next.trtllmImage.available || []) push(img);
     return out;
   }
 
@@ -109,9 +87,7 @@
     push(next.nvidiaImage.selected);
     push(next.nvidiaImage.default);
     push(next.nvidiaImage.latest);
-    for (const img of next.nvidiaImage.available || []) {
-      push(img);
-    }
+    for (const img of next.nvidiaImage.available || []) push(img);
     return out;
   }
 
@@ -126,9 +102,7 @@
 
     push(next.llamacppImage.selected);
     push(next.llamacppImage.default);
-    for (const img of next.llamacppImage.available || []) {
-      push(img);
-    }
+    for (const img of next.llamacppImage.available || []) push(img);
     return out;
   }
 
@@ -137,14 +111,9 @@
     return next.actions.find((info) => info.action === "download_hf_model") || null;
   }
 
-  function llamacppQuickDownloadAction(next: RecipeBackendState | null): RecipeBackendState["actions"][number] | null {
-    if (!next) return null;
-    return next.actions.find((info) => info.action === "download_llamacpp_q8_model") || null;
-  }
-
   function backendActionsWithoutSpecialDownloads(next: RecipeBackendState | null): RecipeBackendState["actions"] {
     if (!next) return [];
-    return next.actions.filter((info) => info.action !== "download_hf_model" && info.action !== "download_llamacpp_q8_model");
+    return next.actions.filter((info) => info.action !== "download_hf_model");
   }
 
   function runningLabel(action: string): string {
@@ -167,23 +136,19 @@
         return "Pulling NVIDIA image...";
       case "update_nvidia_image":
         return "Updating NVIDIA image...";
-      case "pull_llamacpp_image":
-        return "Pulling llama.cpp image...";
-      case "update_llamacpp_image":
-        return "Updating llama.cpp image...";
+      case "sync_llamacpp_image":
+        return "Updating llama.cpp image on cluster...";
       case "download_hf_model":
         return "Downloading HF model...";
-      case "download_llamacpp_q8_model":
-        return "Downloading Qwen3 Q8_0...";
       default:
         return "Running...";
     }
   }
 
-  function actionStateLabel(state: string | undefined): string {
-    if (state === "success") return "success";
-    if (state === "failed") return "failed";
-    if (state === "running") return "running";
+  function actionStateLabel(value: string | undefined): string {
+    if (value === "success") return "success";
+    if (value === "failed") return "failed";
+    if (value === "running") return "running";
     return "idle";
   }
 
@@ -199,14 +164,10 @@
       const next = await getRecipeBackendActionStatus(signal);
       backendActionStatus = next;
 
-      if (next.command) {
-        actionCommand = next.command;
-      }
-      if (!next.running && next.output) {
-        actionOutput = next.output;
-      }
+      if (next.command) actionCommand = next.command;
+      if (!next.running && next.output) actionOutput = next.output;
 
-      if (previous?.running && !next.running && (next.action === "download_hf_model" || next.action === "download_llamacpp_q8_model")) {
+      if (previous?.running && !next.running && next.action === "download_hf_model") {
         await refreshHFModels(signal);
         if (next.state === "success") {
           notice = `Descarga completada en ${formatDuration(next.durationMs || 0)}.`;
@@ -215,7 +176,7 @@
         }
       }
     } catch {
-      // Keep backend page functional even if status endpoint is unavailable.
+      // keep page usable when endpoint is unavailable
     }
   }
 
@@ -239,7 +200,6 @@
       hfHubPath = next.hubPath || "";
       hfModels = next.models || [];
     } catch {
-      // Keep backend page functional even if HF cache is unavailable.
       hfHubPath = "";
       hfModels = [];
     } finally {
@@ -293,37 +253,9 @@
       }
     } finally {
       clearTimeout(timeout);
-      if (refreshController === controller) {
-        refreshController = null;
-      }
+      if (refreshController === controller) refreshController = null;
       refreshing = false;
       loading = false;
-    }
-  }
-
-  async function applySelection(): Promise<void> {
-    if (saving) return;
-    const backendDir = useCustom ? customPath.trim() : selected.trim();
-    if (!backendDir) {
-      error = "Selecciona un backend o introduce una ruta.";
-      return;
-    }
-
-    saving = true;
-    error = null;
-    notice = null;
-    actionCommand = "";
-    actionOutput = "";
-    try {
-      const next = await setRecipeBackend(backendDir);
-      state = next;
-      syncSelectionFromState(next);
-      await refreshHFModels();
-      notice = "Backend actualizado correctamente.";
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-    } finally {
-      saving = false;
     }
   }
 
@@ -333,16 +265,14 @@
   }
 
   async function runAction(action: string, label: string): Promise<void> {
-    const isDownload = action === "download_hf_model" || action === "download_llamacpp_q8_model";
+    const isDownload = action === "download_hf_model";
     if (!isDownload && actionRunning) return;
-    if (isDownload && (isBackendActionRunning("download_hf_model") || isBackendActionRunning("download_llamacpp_q8_model"))) {
+    if (isDownload && isBackendActionRunning("download_hf_model")) {
       error = "Ya hay una descarga en progreso. Espera a que termine.";
       return;
     }
 
-    if (!isDownload) {
-      actionRunning = action;
-    }
+    if (!isDownload) actionRunning = action;
 
     error = null;
     notice = null;
@@ -362,18 +292,29 @@
 
     try {
       const sourceImage =
-        (action === "pull_trtllm_image" || action === "update_trtllm_image")
+        action === "pull_trtllm_image" || action === "update_trtllm_image"
           ? selectedTrtllmImage.trim()
-          : (action === "pull_nvidia_image" || action === "update_nvidia_image")
+          : action === "pull_nvidia_image" || action === "update_nvidia_image"
             ? selectedNvidiaImage.trim()
-            : (action === "pull_llamacpp_image" || action === "update_llamacpp_image")
+            : action === "sync_llamacpp_image"
               ? selectedLlamacppImage.trim()
               : "";
+
       const hfModel = action === "download_hf_model" ? hfModelName.trim() : "";
       if (action === "download_hf_model" && !hfModel) {
         throw new Error("Introduce el nombre del modelo de Hugging Face (org/model).");
       }
-      const opts = sourceImage || hfModel ? { sourceImage, hfModel } : undefined;
+
+      const opts =
+        sourceImage || hfModel
+          ? {
+              sourceImage,
+              hfModel,
+              hfFormat,
+              hfQuantization: hfQuantization.trim(),
+            }
+          : undefined;
+
       const result = await runRecipeBackendAction(action as RecipeBackendAction, opts);
       actionCommand = result.command || "";
       actionOutput = result.output || "";
@@ -390,8 +331,7 @@
         action === "update_trtllm_image" ||
         action === "pull_nvidia_image" ||
         action === "update_nvidia_image" ||
-        action === "pull_llamacpp_image" ||
-        action === "update_llamacpp_image"
+        action === "sync_llamacpp_image"
       ) {
         await refresh();
       }
@@ -399,12 +339,9 @@
       error = e instanceof Error ? e.message : String(e);
       await refreshBackendActionStatus();
     } finally {
-      if (!isDownload) {
-        actionRunning = "";
-      }
+      if (!isDownload) actionRunning = "";
     }
   }
-
 
   onMount(() => {
     void refresh();
@@ -426,8 +363,7 @@
   <div class="card shrink-0">
     <div class="flex items-center justify-between gap-2">
       <h2 class="pb-0">Backend</h2>
-      <button class="btn btn--sm" onclick={refresh} disabled={refreshing || saving}>{refreshing ? "Refreshing..." : "Refresh"}
-      </button>
+      <button class="btn btn--sm" onclick={refresh} disabled={refreshing}>{refreshing ? "Refreshing..." : "Refresh"}</button>
     </div>
 
     {#if state}
@@ -455,57 +391,10 @@
 
   <div class="card flex-1 min-h-0 overflow-auto">
     {#if loading}
-      <div class="text-sm text-txtsecondary">Cargando opciones de backend...</div>
+      <div class="text-sm text-txtsecondary">Cargando estado de backend...</div>
     {:else if state}
-      <div class="text-sm text-txtsecondary mb-2">
-        Selecciona qué backend usar para recetas y operaciones de cluster.
-      </div>
-
-      <div class="space-y-2">
-        {#each state.options as option}
-          <label class="flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              name="backend-option"
-              checked={!useCustom && selected === option}
-              onchange={() => {
-                useCustom = false;
-                selected = option;
-              }}
-            />
-            <span class="font-mono break-all" title={option}>{collapseHomePath(option)}</span>
-          </label>
-        {/each}
-
-        <label class="flex items-center gap-2 text-sm pt-1">
-          <input
-            type="radio"
-            name="backend-option"
-            checked={useCustom}
-            onchange={() => {
-              useCustom = true;
-            }}
-          />
-          <span>Ruta personalizada</span>
-        </label>
-        <input
-          class="input w-full font-mono text-sm"
-          placeholder="~/spark-vllm-docker"
-          bind:value={customPath}
-          onfocus={() => {
-            useCustom = true;
-          }}
-        />
-      </div>
-
-      <div class="mt-3">
-        <button class="btn btn--sm" onclick={applySelection} disabled={saving || refreshing}>
-          {saving ? "Applying..." : "Apply Backend"}
-        </button>
-      </div>
-
       {#if state.backendKind === "trtllm" && state.trtllmImage}
-        <div class="mt-4 p-3 border border-card-border rounded bg-background/40 space-y-2">
+        <div class="mt-1 p-3 border border-card-border rounded bg-background/40 space-y-2">
           <div class="text-sm text-txtsecondary">TRT-LLM source image (NVIDIA)</div>
           {#if state.deploymentGuideUrl}
             <div class="text-xs text-txtsecondary break-all">
@@ -543,7 +432,6 @@
         </div>
       {/if}
 
-
       {#if state.backendKind === "nvidia" && state.nvidiaImage}
         <div class="mt-4 p-3 border border-card-border rounded bg-background/40 space-y-2">
           <div class="text-sm text-txtsecondary">NVIDIA vLLM image (vllm-openai)</div>
@@ -558,11 +446,7 @@
               <option value={image}>{image}</option>
             {/each}
           </select>
-          <input
-            class="input w-full font-mono text-sm"
-            bind:value={selectedNvidiaImage}
-            placeholder="nvcr.io/nvidia/vllm:26.01-py3"
-          />
+          <input class="input w-full font-mono text-sm" bind:value={selectedNvidiaImage} placeholder="nvcr.io/nvidia/vllm:26.01-py3" />
           <div class="text-xs text-txtsecondary break-all">default: <span class="font-mono">{state.nvidiaImage.default}</span></div>
           {#if state.nvidiaImage.latest}
             <div class="text-xs text-txtsecondary break-all">
@@ -583,7 +467,6 @@
         </div>
       {/if}
 
-
       {#if state.backendKind === "llamacpp" && state.llamacppImage}
         <div class="mt-4 p-3 border border-card-border rounded bg-background/40 space-y-2">
           <div class="text-sm text-txtsecondary">llama.cpp source image</div>
@@ -598,11 +481,7 @@
               <option value={image}>{image}</option>
             {/each}
           </select>
-          <input
-            class="input w-full font-mono text-sm"
-            bind:value={selectedLlamacppImage}
-            placeholder="llama-cpp-spark:last"
-          />
+          <input class="input w-full font-mono text-sm" bind:value={selectedLlamacppImage} placeholder="llama-cpp-spark:last" />
           <div class="text-xs text-txtsecondary break-all">default: <span class="font-mono">{state.llamacppImage.default}</span></div>
           {#if state.llamacppImage.warning}
             <div class="p-2 border border-amber-500/30 bg-amber-500/10 rounded text-xs text-amber-300 break-words">
@@ -612,7 +491,6 @@
           <div class="text-xs text-txtsecondary">Se guarda como preferencia de imagen para despliegues llama.cpp.</div>
         </div>
       {/if}
-
 
       <div class="mt-4 pt-3 border-t border-card-border">
         <div class="text-sm text-txtsecondary mb-2">Backend actions</div>
@@ -652,10 +530,25 @@
           <div class="mb-3 p-3 border border-card-border rounded bg-background/40 space-y-2">
             <div class="text-sm text-txtsecondary">Descargar modelo desde Hugging Face</div>
             <input class="input w-full font-mono text-sm" bind:value={hfModelName} placeholder="QuantTrio/MiniMax-M2-AWQ" />
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <label class="text-xs text-txtsecondary">
+                Formato
+                <select class="mt-1 w-full px-2 py-1 rounded border border-card-border bg-background font-mono text-sm" bind:value={hfFormat}>
+                  <option value="safetensors">safetensors</option>
+                  <option value="gguf">gguf</option>
+                </select>
+              </label>
+              <label class="text-xs text-txtsecondary">
+                Cuantización (opcional)
+                <input class="mt-1 input w-full font-mono text-sm" bind:value={hfQuantization} placeholder={hfFormat === "gguf" ? "Q8_0 o Q4_K_M" : "4bit o awq"} />
+              </label>
+            </div>
+
             <button
               class="btn btn--sm"
               onclick={() => runAction("download_hf_model", hfDownloadAction(state)?.label || "Download HF Model")}
-              disabled={isBackendActionRunning("download_hf_model") || saving || !!deletingHFModel}
+              disabled={isBackendActionRunning("download_hf_model") || !!deletingHFModel}
               title={hfDownloadAction(state)?.commandHint || "Download HF Model"}
             >
               {isBackendActionRunning("download_hf_model")
@@ -664,33 +557,7 @@
             </button>
             <div class="text-xs text-txtsecondary break-all">
               Command:
-              <span class="font-mono">{hfDownloadAction(state)?.commandHint || "~/spark-vllm-docker/hf-download.sh <model> -c --copy-parallel"}</span>
-            </div>
-          </div>
-        {/if}
-
-        {#if llamacppQuickDownloadAction(state)}
-          <div class="mb-3 p-3 border border-card-border rounded bg-background/40 space-y-2">
-            <div class="text-sm text-txtsecondary">Descarga rápida llama.cpp (1 nodo)</div>
-            <div class="text-xs text-txtsecondary break-all">
-              Modelo:
-              <span class="font-mono">{llamacppQuickModel}</span>
-              | cuantización:
-              <span class="font-mono">{llamacppQuickQuant}</span>
-            </div>
-            <button
-              class="btn btn--sm"
-              onclick={() => runAction("download_llamacpp_q8_model", llamacppQuickDownloadAction(state)?.label || "Download Qwen3 Next Q8_0 (1 node)")}
-              disabled={isBackendActionRunning("download_hf_model") || isBackendActionRunning("download_llamacpp_q8_model") || saving || !!deletingHFModel}
-              title={llamacppQuickDownloadAction(state)?.commandHint || "Download Qwen3 Next Q8_0 (1 node)"}
-            >
-              {isBackendActionRunning("download_llamacpp_q8_model")
-                ? runningLabel("download_llamacpp_q8_model")
-                : (llamacppQuickDownloadAction(state)?.label || "Download Qwen3 Next Q8_0 (1 node)")}
-            </button>
-            <div class="text-xs text-txtsecondary break-all">
-              Command:
-              <span class="font-mono">{llamacppQuickDownloadAction(state)?.commandHint || "proxy/scripts/llamacpp-hf-download.sh <model> --include *Q8_0*.gguf"}</span>
+              <span class="font-mono">{hfDownloadAction(state)?.commandHint || "~/swap-laboratories/hf-download.sh <model> --format <gguf|safetensors> [--quantization Q8_0|4bit] -c --copy-parallel"}</span>
             </div>
           </div>
         {/if}
@@ -713,12 +580,7 @@
                   <div class="text-xs text-txtsecondary break-all">{collapseHomePath(model.path)}</div>
                   <div class="text-xs text-txtsecondary">Tamaño: {formatBytes(model.sizeBytes)} | Actualizado: {model.modifiedAt}</div>
                   <div class="mt-2">
-                    <button
-                      class="btn btn--sm"
-                      onclick={() => deleteHFModel(model)}
-                      disabled={saving || !!deletingHFModel}
-                      title={`Eliminar ${model.modelId || model.cacheDir}`}
-                    >
+                    <button class="btn btn--sm" onclick={() => deleteHFModel(model)} disabled={!!deletingHFModel} title={`Eliminar ${model.modelId || model.cacheDir}`}>
                       {deletingHFModel === model.cacheDir ? "Eliminando..." : "Eliminar"}
                     </button>
                   </div>
@@ -729,7 +591,7 @@
         </div>
 
         {#if backendActionsWithoutSpecialDownloads(state).length === 0}
-          {#if !hfDownloadAction(state) && !llamacppQuickDownloadAction(state)}
+          {#if !hfDownloadAction(state)}
             <div class="text-xs text-txtsecondary">No hay acciones disponibles para este backend.</div>
           {/if}
         {:else}
@@ -738,7 +600,7 @@
               <button
                 class="btn btn--sm"
                 onclick={() => runAction(info.action, info.label)}
-                disabled={!!actionRunning || saving || refreshing || isBackendActionRunning()}
+                disabled={!!actionRunning || refreshing || isBackendActionRunning()}
                 title={info.commandHint || info.label}
               >
                 {(actionRunning === info.action || isBackendActionRunning(info.action)) ? runningLabel(info.action) : info.label}

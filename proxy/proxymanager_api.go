@@ -38,6 +38,9 @@ func addApiHandlers(pm *ProxyManager) {
 		apiGroup.POST("/cluster/stop", pm.apiStopCluster)
 		apiGroup.GET("/cluster/status", pm.apiGetClusterStatus)
 		apiGroup.POST("/cluster/dgx/update", pm.apiRunClusterDGXUpdate)
+		apiGroup.GET("/images/docker", pm.apiListDockerImages)
+		apiGroup.POST("/images/docker/update", pm.apiUpdateDockerImage)
+		apiGroup.POST("/images/docker/delete", pm.apiDeleteDockerImage)
 		apiGroup.GET("/config/editor", pm.apiGetConfigEditor)
 		apiGroup.PUT("/config/editor", pm.apiSaveConfigEditor)
 		apiGroup.GET("/recipes/state", pm.apiGetRecipeState)
@@ -49,9 +52,13 @@ func addApiHandlers(pm *ProxyManager) {
 		apiGroup.POST("/recipes/backend/action", pm.apiRunRecipeBackendAction)
 		apiGroup.GET("/recipes/backend/action-status", pm.apiGetRecipeBackendActionStatus)
 		apiGroup.GET("/recipes/backend/hf-models", pm.apiListRecipeBackendHFModels)
+		apiGroup.PUT("/recipes/backend/hf-models/path", pm.apiSetRecipeBackendHFHubPath)
 		apiGroup.DELETE("/recipes/backend/hf-models", pm.apiDeleteRecipeBackendHFModel)
 		apiGroup.POST("/recipes/models", pm.apiUpsertRecipeModel)
 		apiGroup.DELETE("/recipes/models/:id", pm.apiDeleteRecipeModel)
+		apiGroup.GET("/recipes/source", pm.apiGetRecipeSource)
+		apiGroup.PUT("/recipes/source", pm.apiSaveRecipeSource)
+		apiGroup.POST("/recipes/source/create", pm.apiCreateRecipeSource)
 		apiGroup.POST("/benchy", pm.apiStartBenchy)
 		apiGroup.GET("/benchy/:id", pm.apiGetBenchyJob)
 		apiGroup.POST("/benchy/:id/cancel", pm.apiCancelBenchyJob)
@@ -77,7 +84,7 @@ func (pm *ProxyManager) stopVLLMServeFallback() {
 		pm.proxyLogger.Warnf("fallback container detection failed: %v", err)
 	}
 	if len(containers) == 0 {
-		containers = []string{"vllm_node"}
+		return
 	}
 	pm.stopFallbackProcessInContainers(containers, "vllm serve", "vllm serve")
 }
@@ -282,9 +289,9 @@ func (pm *ProxyManager) getModelStatus() []Model {
 	}
 
 	type probeCandidate struct {
-		index int
-		proxy string
-		keys  []string
+		index   int
+		proxies []string
+		keys    []string
 	}
 	candidates := make([]probeCandidate, 0, len(pm.config.Models))
 
@@ -311,12 +318,18 @@ func (pm *ProxyManager) getModelStatus() []Model {
 
 		// Get process state
 		state := string(StateStopped)
+		probeProxies := []string{modelCfg.Proxy}
 		processGroup := pm.findGroupByModelName(modelID)
 		if processGroup != nil {
+			processGroup.Lock()
 			process := processGroup.processes[modelID]
 			if process != nil {
 				state = string(process.CurrentState())
+				if proxy := strings.TrimSpace(process.config.Proxy); proxy != "" {
+					probeProxies = append(probeProxies, proxy)
+				}
 			}
+			processGroup.Unlock()
 		}
 
 		modelStatus := Model{
@@ -337,10 +350,23 @@ func (pm *ProxyManager) getModelStatus() []Model {
 		models = append(models, modelStatus)
 
 		if state == string(StateStopped) {
+			seenProxies := make(map[string]struct{}, len(probeProxies))
+			uniqueProxies := make([]string, 0, len(probeProxies))
+			for _, candidateProxy := range probeProxies {
+				candidateProxy = strings.TrimSpace(candidateProxy)
+				if candidateProxy == "" {
+					continue
+				}
+				if _, exists := seenProxies[candidateProxy]; exists {
+					continue
+				}
+				seenProxies[candidateProxy] = struct{}{}
+				uniqueProxies = append(uniqueProxies, candidateProxy)
+			}
 			candidates = append(candidates, probeCandidate{
-				index: idx,
-				proxy: modelCfg.Proxy,
-				keys:  []string{modelID, modelCfg.UseModelName},
+				index:   idx,
+				proxies: uniqueProxies,
+				keys:    []string{modelID, modelCfg.UseModelName},
 			})
 		}
 	}
@@ -350,27 +376,34 @@ func (pm *ProxyManager) getModelStatus() []Model {
 	if len(candidates) > 0 {
 		servedByProxy := make(map[string]map[string]struct{})
 		for _, candidate := range candidates {
-			proxyURL := strings.TrimSpace(candidate.proxy)
-			if proxyURL == "" {
-				continue
-			}
-
-			servedIDs, ok := servedByProxy[proxyURL]
-			if !ok {
-				servedIDs = detectServedModelIDs(proxyURL)
-				servedByProxy[proxyURL] = servedIDs
-			}
-			if len(servedIDs) == 0 {
-				continue
-			}
-
-			for _, key := range candidate.keys {
-				normalized := normalizeModelKey(key)
-				if normalized == "" {
+			matched := false
+			for _, candidateProxy := range candidate.proxies {
+				proxyURL := strings.TrimSpace(candidateProxy)
+				if proxyURL == "" {
 					continue
 				}
-				if _, found := servedIDs[normalized]; found {
-					models[candidate.index].State = string(StateReady)
+
+				servedIDs, ok := servedByProxy[proxyURL]
+				if !ok {
+					servedIDs = detectServedModelIDs(proxyURL)
+					servedByProxy[proxyURL] = servedIDs
+				}
+				if len(servedIDs) == 0 {
+					continue
+				}
+
+				for _, key := range candidate.keys {
+					normalized := normalizeModelKey(key)
+					if normalized == "" {
+						continue
+					}
+					if _, found := servedIDs[normalized]; found {
+						models[candidate.index].State = string(StateReady)
+						matched = true
+						break
+					}
+				}
+				if matched {
 					break
 				}
 			}
@@ -403,7 +436,7 @@ func detectServedModelIDs(proxyURL string) map[string]struct{} {
 		return result
 	}
 
-	client := &http.Client{Timeout: 750 * time.Millisecond}
+	client := &http.Client{Timeout: 2 * time.Second}
 	endpoints := []string{base + "/v1/models", base + "/models"}
 
 	for _, endpoint := range endpoints {

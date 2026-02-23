@@ -3,6 +3,7 @@ package proxy
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -12,10 +13,10 @@ func TestDetectRecipeBackendKind(t *testing.T) {
 		path string
 		want string
 	}{
-		{path: "/home/u/spark-vllm-docker", want: "vllm"},
-		{path: "/home/u/sqlang-backend", want: "sqlang"},
-		{path: "/home/u/trtllm-backend", want: "trtllm"},
-		{path: "/home/u/spark-llama-cpp", want: "llamacpp"},
+		{path: "/tmp/u/spark-vllm-docker", want: "vllm"},
+		{path: "/tmp/u/sqlang-backend", want: "sqlang"},
+		{path: "/tmp/u/trtllm-backend", want: "trtllm"},
+		{path: "/tmp/u/spark-llama-cpp", want: "llamacpp"},
 		{path: "/opt/custom-backend", want: "custom"},
 	}
 
@@ -208,43 +209,116 @@ func TestRecipeBackendActionsForKindIncludesHFDownload(t *testing.T) {
 	t.Fatalf("download_hf_model action not found")
 }
 
-func TestResolveLLAMACPPHFDownloadScriptPathPrefersEnv(t *testing.T) {
-	temp := t.TempDir()
-	script := filepath.Join(temp, "llamacpp-hf-download.sh")
-	t.Setenv(llamacppHFDownloadScriptPathEnv, script)
-
-	if got := resolveLLAMACPPHFDownloadScriptPath(); got != script {
-		t.Fatalf("resolveLLAMACPPHFDownloadScriptPath() = %q, want %q", got, script)
-	}
-}
-
-func TestRecipeBackendActionsForKindIncludesLLAMACPPQuickDownload(t *testing.T) {
+func TestRecipeBackendActionsForKindIncludesLLAMACPPSyncImage(t *testing.T) {
 	temp := t.TempDir()
 	hfScript := filepath.Join(temp, "hf-download.sh")
 	if err := os.WriteFile(hfScript, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("write hf script: %v", err)
 	}
-	llamaScript := filepath.Join(temp, "llamacpp-hf-download.sh")
-	if err := os.WriteFile(llamaScript, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write llamacpp script: %v", err)
-	}
 	t.Setenv(hfDownloadScriptPathEnv, hfScript)
-	t.Setenv(llamacppHFDownloadScriptPathEnv, llamaScript)
 
 	actions := recipeBackendActionsForKind("llamacpp", temp, "")
+	foundSync := false
 	for _, action := range actions {
-		if action.Action == "download_llamacpp_q8_model" {
-			if !strings.Contains(action.CommandHint, llamaScript) {
-				t.Fatalf("download_llamacpp_q8_model commandHint missing script path: %q", action.CommandHint)
-			}
-			if !strings.Contains(action.CommandHint, defaultLLAMACPPHFModel) {
-				t.Fatalf("download_llamacpp_q8_model commandHint missing model: %q", action.CommandHint)
-			}
-			if !strings.Contains(action.CommandHint, defaultLLAMACPPHFIncludePattern) {
-				t.Fatalf("download_llamacpp_q8_model commandHint missing include pattern: %q", action.CommandHint)
-			}
-			return
+		if action.Action == "sync_llamacpp_image" {
+			foundSync = true
+		}
+		if action.Action == "download_llamacpp_q8_model" || action.Action == "pull_llamacpp_image" || action.Action == "update_llamacpp_image" {
+			t.Fatalf("unexpected legacy llama.cpp action present: %q", action.Action)
 		}
 	}
-	t.Fatalf("download_llamacpp_q8_model action not found")
+	if !foundSync {
+		t.Fatalf("sync_llamacpp_image action not found")
+	}
+}
+
+func TestNormalizeHFFormat(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "", want: "safetensors"},
+		{in: "safetensor", want: "safetensors"},
+		{in: "safetensors", want: "safetensors"},
+		{in: "gguf", want: "gguf"},
+		{in: "GGUF", want: "gguf"},
+		{in: "unknown", want: ""},
+	}
+
+	for _, tc := range tests {
+		got := normalizeHFFormat(tc.in)
+		if got != tc.want {
+			t.Fatalf("normalizeHFFormat(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestIsRecipeBackendDir(t *testing.T) {
+	root := t.TempDir()
+	valid := filepath.Join(root, "spark-vllm-docker")
+	if err := os.MkdirAll(filepath.Join(valid, "recipes"), 0o755); err != nil {
+		t.Fatalf("mkdir valid recipes: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(valid, "run-recipe.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write valid run-recipe.sh: %v", err)
+	}
+
+	invalidMissingScript := filepath.Join(root, "missing-script")
+	if err := os.MkdirAll(filepath.Join(invalidMissingScript, "recipes"), 0o755); err != nil {
+		t.Fatalf("mkdir missing-script recipes: %v", err)
+	}
+
+	invalidMissingRecipes := filepath.Join(root, "missing-recipes")
+	if err := os.MkdirAll(invalidMissingRecipes, 0o755); err != nil {
+		t.Fatalf("mkdir missing-recipes: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(invalidMissingRecipes, "run-recipe.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write missing-recipes run-recipe.sh: %v", err)
+	}
+
+	if !isRecipeBackendDir(valid) {
+		t.Fatalf("expected valid backend dir")
+	}
+	if isRecipeBackendDir(invalidMissingScript) {
+		t.Fatalf("backend without run-recipe.sh should be invalid")
+	}
+	if isRecipeBackendDir(invalidMissingRecipes) {
+		t.Fatalf("backend without recipes dir should be invalid")
+	}
+}
+
+func TestDiscoverRecipeBackendsFromRoot(t *testing.T) {
+	root := t.TempDir()
+	makeBackend := func(name string, valid bool) string {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", name, err)
+		}
+		if valid {
+			if err := os.MkdirAll(filepath.Join(dir, "recipes"), 0o755); err != nil {
+				t.Fatalf("mkdir recipes %s: %v", name, err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "run-recipe.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatalf("write run-recipe.sh %s: %v", name, err)
+			}
+		}
+		return dir
+	}
+
+	wantA := makeBackend("spark-llama-cpp", true)
+	wantB := makeBackend("spark-vllm-docker", true)
+	_ = makeBackend("broken-backend", false)
+
+	got := discoverRecipeBackendsFromRoot(root)
+	sort.Strings(got)
+	want := []string{wantA, wantB}
+	sort.Strings(want)
+	if len(got) != len(want) {
+		t.Fatalf("discoverRecipeBackendsFromRoot() len=%d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("discoverRecipeBackendsFromRoot()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
 }
