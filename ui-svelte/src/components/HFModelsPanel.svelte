@@ -248,7 +248,7 @@
   });
 </script>
 
-<div class="card">
+<div class="card h-full flex flex-col min-h-0">
   <div class="flex items-center justify-between gap-2 mb-2">
     <h3>HF Models</h3>
     <button class="btn btn--sm" onclick={() => refreshState()} disabled={loading}>
@@ -328,7 +328,7 @@
     </div>
   {/if}
 
-  <div class="p-3 border border-card-border rounded bg-background/40 space-y-2">
+  <div class="p-3 border border-card-border rounded bg-background/40 flex-1 min-h-0 flex flex-col gap-2">
     <div class="text-sm text-txtsecondary">Modelos descargados (Hugging Face)</div>
     <div class="text-xs text-txtsecondary">Ruta del hub</div>
     <div class="flex flex-col md:flex-row gap-2">
@@ -349,7 +349,7 @@
     {:else if hfModels.length === 0}
       <div class="text-xs text-txtsecondary">No hay modelos descargados.</div>
     {:else}
-      <div class="space-y-2 max-h-80 overflow-auto pr-1">
+      <div class="space-y-2 overflow-auto pr-1 flex-1 min-h-0">
         {#each hfModels as model (model.cacheDir)}
           <div class="p-2 border border-card-border rounded bg-background/60">
             <div class="text-sm font-mono text-txtmain break-all">{model.modelId || model.cacheDir}</div>

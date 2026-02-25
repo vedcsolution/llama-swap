@@ -278,8 +278,8 @@ func resolveModelContainerImage(modelID, cmd string, metadata map[string]any, ca
 func (pm *ProxyManager) getModelStatus() []Model {
 	// Extract keys and sort them
 	models := []Model{}
-	activeBackendDir := recipesBackendDir()
-	_, catalogByID, catalogErr := loadRecipeCatalog(activeBackendDir)
+
+	_, catalogByID, catalogErr := loadRecipeCatalog("")
 	if catalogErr != nil {
 		catalogByID = nil
 	}
@@ -305,9 +305,6 @@ func (pm *ProxyManager) getModelStatus() []Model {
 	for _, modelID := range modelIDs {
 		modelCfg := pm.config.Models[modelID]
 
-		if !recipeEntryTargetsActiveBackend(modelCfg.Metadata, activeBackendDir) {
-			continue
-		}
 		recipeModel, isRecipe := toRecipeManagedModel(modelID, map[string]any{
 			"cmd":      modelCfg.Cmd,
 			"metadata": modelCfg.Metadata,

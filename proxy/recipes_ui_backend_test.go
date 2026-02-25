@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -87,60 +88,6 @@ func TestResolveLLAMACPPSourceImagePrefersOverrideFile(t *testing.T) {
 	}
 }
 
-func TestBackendScopedConfigPath(t *testing.T) {
-	cfg := "/tmp/config.yaml"
-	if got, want := backendScopedConfigPath(cfg, "vllm"), "/tmp/config.vllm.yaml"; got != want {
-		t.Fatalf("backendScopedConfigPath(vllm) = %q, want %q", got, want)
-	}
-	if got, want := backendScopedConfigPath(cfg, "trtllm"), "/tmp/config.trtllm.yaml"; got != want {
-		t.Fatalf("backendScopedConfigPath(trtllm) = %q, want %q", got, want)
-	}
-	if got, want := backendScopedConfigPath(cfg, "unknown"), "/tmp/config.custom.yaml"; got != want {
-		t.Fatalf("backendScopedConfigPath(custom) = %q, want %q", got, want)
-	}
-}
-
-func TestSwitchRecipeBackendConfigPersistsAndRestores(t *testing.T) {
-	dir := t.TempDir()
-	activePath := filepath.Join(dir, "config.yaml")
-	vllmBody := `macros:
-  recipe_runner: /vllm/run-recipe.sh
-`
-	trtBody := `macros:
-  recipe_runner: /trt/run-recipe.sh
-`
-
-	if err := os.WriteFile(activePath, []byte(vllmBody), 0o644); err != nil {
-		t.Fatalf("write active config: %v", err)
-	}
-	trtPath := backendScopedConfigPath(activePath, "trtllm")
-	if err := os.WriteFile(trtPath, []byte(trtBody), 0o644); err != nil {
-		t.Fatalf("write trt config: %v", err)
-	}
-
-	pm := &ProxyManager{configPath: activePath}
-	if err := pm.switchRecipeBackendConfig("vllm", "trtllm"); err != nil {
-		t.Fatalf("switchRecipeBackendConfig error: %v", err)
-	}
-
-	activeGot, err := os.ReadFile(activePath)
-	if err != nil {
-		t.Fatalf("read active config: %v", err)
-	}
-	if string(activeGot) != trtBody {
-		t.Fatalf("active config mismatch\nwant:\n%s\ngot:\n%s", trtBody, string(activeGot))
-	}
-
-	vllmPath := backendScopedConfigPath(activePath, "vllm")
-	vllmGot, err := os.ReadFile(vllmPath)
-	if err != nil {
-		t.Fatalf("read vllm scoped config: %v", err)
-	}
-	if string(vllmGot) != vllmBody {
-		t.Fatalf("vllm scoped config mismatch\nwant:\n%s\ngot:\n%s", vllmBody, string(vllmGot))
-	}
-}
-
 func TestRecipeManagedModelInCatalog(t *testing.T) {
 	catalog := map[string]RecipeCatalogItem{
 		"qwen3-coder-next-vllm-next": {ID: "qwen3-coder-next-vllm-next"},
@@ -209,7 +156,7 @@ func TestRecipeBackendActionsForKindIncludesHFDownload(t *testing.T) {
 	t.Fatalf("download_hf_model action not found")
 }
 
-func TestRecipeBackendActionsForKindIncludesLLAMACPPSyncImage(t *testing.T) {
+func TestRecipeBackendActionsForKindDoesNotIncludeLLAMACPPSyncImage(t *testing.T) {
 	temp := t.TempDir()
 	hfScript := filepath.Join(temp, "hf-download.sh")
 	if err := os.WriteFile(hfScript, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
@@ -218,17 +165,13 @@ func TestRecipeBackendActionsForKindIncludesLLAMACPPSyncImage(t *testing.T) {
 	t.Setenv(hfDownloadScriptPathEnv, hfScript)
 
 	actions := recipeBackendActionsForKind("llamacpp", temp, "")
-	foundSync := false
 	for _, action := range actions {
 		if action.Action == "sync_llamacpp_image" {
-			foundSync = true
+			t.Fatalf("sync_llamacpp_image action should not be present")
 		}
 		if action.Action == "download_llamacpp_q8_model" || action.Action == "pull_llamacpp_image" || action.Action == "update_llamacpp_image" {
 			t.Fatalf("unexpected legacy llama.cpp action present: %q", action.Action)
 		}
-	}
-	if !foundSync {
-		t.Fatalf("sync_llamacpp_image action not found")
 	}
 }
 
@@ -320,5 +263,107 @@ func TestDiscoverRecipeBackendsFromRoot(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("discoverRecipeBackendsFromRoot()[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+func TestResolveRecipeBackendDirFromMeta_UsesBackendField(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("models: {}\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("LLAMA_SWAP_CONFIG_PATH", cfgPath)
+
+	backend := filepath.Join(root, "backend", "spark-vllm-docker")
+	if err := os.MkdirAll(filepath.Join(backend, "recipes"), 0o755); err != nil {
+		t.Fatalf("mkdir backend recipes: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(backend, "run-recipe.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write run-recipe.sh: %v", err)
+	}
+
+	got := resolveRecipeBackendDirFromMeta(recipeCatalogMeta{Backend: "spark-vllm-docker"}, "", "")
+	want, err := filepath.Abs(backend)
+	if err != nil {
+		t.Fatalf("abs backend: %v", err)
+	}
+	if got != want {
+		t.Fatalf("resolveRecipeBackendDirFromMeta() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveRecipeBackendDirFromMeta_DoesNotFallbackToActiveBackend(t *testing.T) {
+	root := t.TempDir()
+	activeBackend := filepath.Join(root, "spark-vllm-docker")
+	if err := os.MkdirAll(filepath.Join(activeBackend, "recipes"), 0o755); err != nil {
+		t.Fatalf("mkdir active backend recipes: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(activeBackend, "run-recipe.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write active run-recipe.sh: %v", err)
+	}
+	t.Setenv(recipesBackendDirEnv, activeBackend)
+
+	if got := resolveRecipeBackendDirFromMeta(recipeCatalogMeta{}, "", ""); got != "" {
+		t.Fatalf("resolveRecipeBackendDirFromMeta() = %q, want empty", got)
+	}
+}
+
+func TestUpsertRecipeModel_FailsWhenRecipeBackendIsUnresolved(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("models: {}\ngroups: {}\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	recipesDir := filepath.Join(root, "recipes")
+	if err := os.MkdirAll(recipesDir, 0o755); err != nil {
+		t.Fatalf("mkdir recipes: %v", err)
+	}
+	recipePath := filepath.Join(recipesDir, "missing-backend.yaml")
+	recipeBody := "" +
+		"name: Missing Backend\n" +
+		"description: no backend key\n" +
+		"model: test-model\n" +
+		"runtime: vllm\n"
+	if err := os.WriteFile(recipePath, []byte(recipeBody), 0o644); err != nil {
+		t.Fatalf("write recipe: %v", err)
+	}
+	t.Setenv(recipesCatalogDirEnv, recipesDir)
+
+	pm := &ProxyManager{configPath: configPath}
+	_, err := pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+		ModelID:   "m1",
+		RecipeRef: "missing-backend",
+	})
+	if err == nil {
+		t.Fatalf("expected upsertRecipeModel to fail when backend is unresolved")
+	}
+	if !strings.Contains(err.Error(), "backend not resolved") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildVLLMContainerDetectExpr_UsesShellLiteralFilter(t *testing.T) {
+	got := buildVLLMContainerDetectExpr("nvcr.io/nvidia/tensorrt-llm/release:1.4.0")
+	want := "docker ps --filter 'ancestor=nvcr.io/nvidia/tensorrt-llm/release:1.4.0' --format \"{{.Names}}\" | head -n 1"
+	if got != want {
+		t.Fatalf("buildVLLMContainerDetectExpr() = %q, want %q", got, want)
+	}
+}
+
+func TestQuoteForShellLiteral_EscapesSingleQuotes(t *testing.T) {
+	in := "repo'evil;$(touch /tmp/pwn)"
+	got := quoteForShellLiteral(in)
+	want := "'repo'\"'\"'evil;$(touch /tmp/pwn)'"
+	if got != want {
+		t.Fatalf("quoteForShellLiteral() = %q, want %q", got, want)
+	}
+}
+
+func TestBackendStopExprWithContainer_LlamaCppMatchesPortedNames(t *testing.T) {
+	got := backendStopExprWithContainer("llamacpp", "")
+	want := "LLAMA_CPP_CONTAINER=\"$(docker ps --format \"{{.Names}}\" | grep -E \"^llama_cpp_spark_.*_${PORT}$|^llama_cpp_spark_${PORT}$\" | head -n 1)\"; if [ -n \"$LLAMA_CPP_CONTAINER\" ]; then docker rm -f \"$LLAMA_CPP_CONTAINER\" >/dev/null 2>&1 || true; fi"
+	if got != want {
+		t.Fatalf("backendStopExprWithContainer() = %q, want %q", got, want)
 	}
 }

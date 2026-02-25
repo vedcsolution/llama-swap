@@ -60,3 +60,7 @@ fixes #123
   - Keep runtime images required by recipes (`vllm-node:*`, `vllm-node-mxfp4:*`, `trtllm-node:*`, `llama-cpp-spark:*`).
 - Systemd service must run fork binary from repo path, not global binary:
   - `ExecStart=$REPO_DIR/build/llama-swap ...`
+
+## Restricciones De Edicion
+
+- No se modifica `/home/csolutions_ai/swap-laboratories/backend/spark-vllm-docker`.

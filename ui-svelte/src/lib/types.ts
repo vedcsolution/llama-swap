@@ -206,7 +206,6 @@ export type RecipeBackendAction =
   | "pull_nvidia_image"
   | "update_nvidia_image"
   | "build_llamacpp"
-  | "sync_llamacpp_image"
   | "download_hf_model";
 
 export interface RecipeBackendActionInfo {

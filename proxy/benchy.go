@@ -75,6 +75,8 @@ var benchyPluginsRequireCodeExec = map[string]struct{}{
 	"swebench_verified": {},
 }
 
+var benchyGGUFSuffixRe = regexp.MustCompile(`(?i)([-_]?gguf)$`)
+
 type BenchyJob struct {
 	ID                  string     `json:"id"`
 	Model               string     `json:"model"`
@@ -355,10 +357,7 @@ func (pm *ProxyManager) apiStartBenchy(c *gin.Context) {
 		return
 	}
 
-	tokenizer := fixedTokenizer
-	if tokenizer == "" {
-		tokenizer = pm.defaultBenchyTokenizer(resolvedModels[0].RealModelName)
-	}
+	tokenizer := pm.resolveBenchyTokenizer(resolvedModels[0].RealModelName, fixedTokenizer)
 
 	jobStatus := benchyStatusRunning
 	if startAt != nil && startAt.After(time.Now().Add(2*time.Second)) {
@@ -527,10 +526,7 @@ func (pm *ProxyManager) runBenchyQueueJob(
 			return
 		}
 
-		tokenizer := fixedTokenizer
-		if tokenizer == "" {
-			tokenizer = pm.defaultBenchyTokenizer(model.RealModelName)
-		}
+		tokenizer := pm.resolveBenchyTokenizer(model.RealModelName, fixedTokenizer)
 
 		servedModelName := pm.resolveBenchyServedModelName(
 			model.RequestedModel,
@@ -901,12 +897,19 @@ func (pm *ProxyManager) defaultBenchyTokenizer(realModelName string) string {
 		return tok
 	}
 
+	if tok, ok := benchyTokenizerFromRecipeRef(realModelName); ok {
+		return tok
+	}
+
 	// If the model id itself is a HF-like reference, use it.
 	if strings.Contains(realModelName, "/") && !strings.HasPrefix(realModelName, "/") {
 		return realModelName
 	}
 
 	// If useModelName looks like a HF-like reference, prefer it.
+	if tok, ok := benchyTokenizerFromRecipeRef(modelCfg.UseModelName); ok {
+		return tok
+	}
 	if u := strings.TrimSpace(modelCfg.UseModelName); u != "" && strings.Contains(u, "/") && !strings.HasPrefix(u, "/") {
 		return u
 	}
@@ -914,12 +917,129 @@ func (pm *ProxyManager) defaultBenchyTokenizer(realModelName string) string {
 	// Finally, try any alias that looks like a HF model id.
 	for _, a := range modelCfg.Aliases {
 		a = strings.TrimSpace(a)
+		if tok, ok := benchyTokenizerFromRecipeRef(a); ok {
+			return tok
+		}
 		if a != "" && strings.Contains(a, "/") && !strings.HasPrefix(a, "/") {
 			return a
 		}
 	}
 
 	return realModelName
+}
+
+func (pm *ProxyManager) resolveBenchyTokenizer(realModelName, fixedTokenizer string) string {
+	if tok := strings.TrimSpace(fixedTokenizer); tok != "" {
+		// Some UI sessions may persist a non-tokenizer value (e.g. model id or
+		// recipe ref). Treat those as "auto" and resolve from model metadata.
+		if tok == realModelName {
+			tokenizer := pm.defaultBenchyTokenizer(realModelName)
+			return pm.adjustBenchyTokenizerForBackend(realModelName, tokenizer)
+		}
+		if cfg, ok := pm.config.Models[realModelName]; ok {
+			if u := strings.TrimSpace(cfg.UseModelName); u != "" && tok == u {
+				tokenizer := pm.defaultBenchyTokenizer(realModelName)
+				return pm.adjustBenchyTokenizerForBackend(realModelName, tokenizer)
+			}
+		}
+		if fromRef, ok := benchyTokenizerFromRecipeRef(tok); ok {
+			tok = fromRef
+		}
+		return pm.adjustBenchyTokenizerForBackend(realModelName, tok)
+	}
+
+	tokenizer := pm.defaultBenchyTokenizer(realModelName)
+	return pm.adjustBenchyTokenizerForBackend(realModelName, tokenizer)
+}
+
+func (pm *ProxyManager) adjustBenchyTokenizerForBackend(realModelName, tokenizer string) string {
+	tokenizer = strings.TrimSpace(tokenizer)
+	if tokenizer == "" {
+		return tokenizer
+	}
+	if pm.benchyBackendKind(realModelName) != "llamacpp" {
+		return tokenizer
+	}
+
+	// If recipe metadata explicitly defines tokenizer, respect it.
+	if cfg, ok := pm.config.Models[realModelName]; ok {
+		if _, fromMeta := benchyTokenizerFromMetadata(cfg.Metadata); fromMeta {
+			return tokenizer
+		}
+	}
+
+	return benchyNormalizeLlamaTokenizer(tokenizer)
+}
+
+func (pm *ProxyManager) benchyBackendKind(realModelName string) string {
+	cfg, ok := pm.config.Models[realModelName]
+	if !ok {
+		return ""
+	}
+
+	recipeMeta := getMap(cfg.Metadata, recipeMetadataKey)
+	if backendDir := strings.TrimSpace(getString(recipeMeta, "backend_dir")); backendDir != "" {
+		return detectRecipeBackendKind(backendDir)
+	}
+
+	// Best-effort fallback for legacy configs that lack recipe metadata.
+	cmdLower := strings.ToLower(strings.TrimSpace(cfg.Cmd))
+	useModelLower := strings.ToLower(strings.TrimSpace(cfg.UseModelName))
+	if strings.Contains(cmdLower, "llama-cpp") || strings.Contains(useModelLower, "gguf") {
+		return "llamacpp"
+	}
+
+	return ""
+}
+
+func benchyTokenizerFromRecipeRef(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.Contains(raw, "/") || strings.HasPrefix(raw, "/") {
+		return "", false
+	}
+
+	lower := strings.ToLower(raw)
+	if !strings.HasPrefix(lower, "models--") {
+		return "", false
+	}
+
+	parts := strings.Split(raw, "--")
+	if len(parts) < 3 {
+		return "", false
+	}
+
+	org := strings.TrimSpace(parts[1])
+	repo := strings.TrimSpace(strings.Join(parts[2:], "--"))
+	if org == "" || repo == "" {
+		return "", false
+	}
+	return org + "/" + repo, true
+}
+
+func benchyNormalizeLlamaTokenizer(tokenizer string) string {
+	tokenizer = strings.TrimSpace(tokenizer)
+	if tokenizer == "" || strings.HasPrefix(tokenizer, "/") || !strings.Contains(tokenizer, "/") {
+		return tokenizer
+	}
+
+	parts := strings.SplitN(tokenizer, "/", 2)
+	org := strings.TrimSpace(parts[0])
+	repo := strings.TrimSpace(parts[1])
+	if org == "" || repo == "" {
+		return tokenizer
+	}
+
+	origRepo := repo
+	lower := strings.ToLower(repo)
+	if strings.HasSuffix(lower, ".gguf") {
+		repo = repo[:len(repo)-len(".gguf")]
+	}
+	repo = benchyGGUFSuffixRe.ReplaceAllString(repo, "")
+	repo = strings.TrimSpace(repo)
+	if repo == "" || repo == origRepo {
+		return tokenizer
+	}
+	return org + "/" + repo
 }
 
 func (pm *ProxyManager) resolveBenchyServedModelName(requestedModel, realModelName, tokenizer string, userProvidedBaseURL bool) string {

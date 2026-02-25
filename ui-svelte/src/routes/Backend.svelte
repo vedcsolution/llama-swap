@@ -136,8 +136,6 @@
         return "Pulling NVIDIA image...";
       case "update_nvidia_image":
         return "Updating NVIDIA image...";
-      case "sync_llamacpp_image":
-        return "Updating llama.cpp image on cluster...";
       case "download_hf_model":
         return "Downloading HF model...";
       default:
@@ -296,7 +294,7 @@
           ? selectedTrtllmImage.trim()
           : action === "pull_nvidia_image" || action === "update_nvidia_image"
             ? selectedNvidiaImage.trim()
-            : action === "sync_llamacpp_image"
+            : action === "build_llamacpp"
               ? selectedLlamacppImage.trim()
               : "";
 
@@ -330,8 +328,7 @@
         action === "pull_trtllm_image" ||
         action === "update_trtllm_image" ||
         action === "pull_nvidia_image" ||
-        action === "update_nvidia_image" ||
-        action === "sync_llamacpp_image"
+        action === "update_nvidia_image"
       ) {
         await refresh();
       }

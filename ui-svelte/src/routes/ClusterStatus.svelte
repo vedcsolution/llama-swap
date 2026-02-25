@@ -8,6 +8,7 @@
   let refreshing = false;
   let dgxUpdating = false;
   let dgxUpdatingTargets: Record<string, boolean> = {};
+  let dgxUpdateConfirmKey = "";
   let error: string | null = null;
   let dgxActionError: string | null = null;
   let dgxActionResult: string | null = null;
@@ -114,6 +115,7 @@
     }
 
     dgxUpdating = true;
+    dgxUpdateConfirmKey = "";
     markTargetsUpdating(targets, true);
     dgxActionError = null;
     dgxActionResult = null;
@@ -140,11 +142,15 @@
       dgxActionResult = null;
       return;
     }
+    const confirmKey = targets.join(",");
+    if (dgxUpdateConfirmKey !== confirmKey) {
+      dgxUpdateConfirmKey = confirmKey;
+      dgxActionError = null;
+      dgxActionResult = "Confirma actualizacion: pulsa Update Nodes de nuevo para:\n" + targets.join("\n");
+      return;
+    }
 
-    const confirmed = window.confirm(
-      `Se ejecutará UpdateAndReboot en ${targets.length} nodo(s):\n${targets.join("\n")}\n\nEl proceso puede terminar en reboot automático.`
-    );
-    if (!confirmed) return;
+    dgxUpdateConfirmKey = "";
 
     await executeDgxUpdate(targets);
   }
@@ -175,7 +181,7 @@
       <h2 class="pb-0">Cluster</h2>
       <div class="flex items-center gap-2">
         <button class="btn btn--sm" onclick={runDgxUpdate} disabled={dgxUpdating || !state || !hasUpdatableDGXNodes()}>
-          {dgxUpdating ? "Updating..." : "Update Nodes"}
+          {dgxUpdating ? "Updating..." : (dgxUpdateConfirmKey ? "Confirm Update Nodes" : "Update Nodes")}
         </button>
         <button class="btn btn--sm" onclick={refresh} disabled={refreshing}>
           {refreshing ? "Refreshing..." : "Refresh"}

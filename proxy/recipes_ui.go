@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -62,6 +63,8 @@ var (
 	recipeTpRe               = regexp.MustCompile(`(?:^|\s)--tp\s+([0-9]+)`)
 	recipeNodesRe            = regexp.MustCompile(`(?:^|\s)-n\s+("?[^"\s]+"?|\$\{[^}]+\}|[^\s]+)`)
 	recipeTemplateVarRe      = regexp.MustCompile(`\{([a-zA-Z0-9_]+)\}`)
+	gpuMemoryUtilRe          = regexp.MustCompile(`(?:^|\s)--gpu-memory-utilization(?:=|\s+)([0-9]*\.?[0-9]+)`)
+	gpuMemoryUtilAltRe       = regexp.MustCompile(`(?:^|\s)--gpu_memory_utilization(?:=|\s+)([0-9]*\.?[0-9]+)`)
 	trtllmSourceImageRe      = regexp.MustCompile(`(?m)^SOURCE_IMAGE="([^"]+)"`)
 	trtllmTagVersionRe       = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:rc(\d+))?(?:\.post(\d+))?$`)
 	hfHubPathOverrideMu      sync.RWMutex
@@ -199,8 +202,25 @@ type upsertRecipeModelRequest struct {
 	ShmSizeGb             int      `json:"shmSizeGb,omitempty"`      // Shared memory size in GB
 }
 
-type setRecipeBackendRequest struct {
-	BackendDir string `json:"backendDir"`
+func appendNonPrivilegedRecipeArgs(parts []string, req upsertRecipeModelRequest) []string {
+	if !req.NonPrivileged {
+		return parts
+	}
+
+	parts = append(parts, " --non-privileged")
+	if req.MemLimitGb > 0 {
+		parts = append(parts, fmt.Sprintf(" --mem-limit-gb %d", req.MemLimitGb))
+	}
+	if req.MemSwapLimitGb > 0 {
+		parts = append(parts, fmt.Sprintf(" --mem-swap-limit-gb %d", req.MemSwapLimitGb))
+	}
+	if req.PidsLimit > 0 {
+		parts = append(parts, fmt.Sprintf(" --pids-limit %d", req.PidsLimit))
+	}
+	if req.ShmSizeGb > 0 {
+		parts = append(parts, fmt.Sprintf(" --shm-size-gb %d", req.ShmSizeGb))
+	}
+	return parts
 }
 
 type recipeBackendActionRequest struct {
@@ -781,10 +801,6 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 		defer cancel()
 		cmd = exec.CommandContext(ctx, "docker", "pull", nvidiaImage)
 	case "build_llamacpp":
-		if backendKind != "llamacpp" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "build_llamacpp is only supported for llama.cpp backend"})
-			return
-		}
 		llamacppSourceImage = resolveLLAMACPPSourceImage(backendDir, req.SourceImage)
 		if llamacppSourceImage == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "source image is empty"})
@@ -799,25 +815,6 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Hour)
 		defer cancel()
 		cmd = exec.CommandContext(ctx, "bash", "-lc", buildLLAMACPPBuildAndSyncScript(backendDir, autodiscoverPath, llamacppSourceImage))
-	case "sync_llamacpp_image":
-		if backendKind != "llamacpp" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "sync_llamacpp_image is only supported for llama.cpp backend"})
-			return
-		}
-		llamacppSourceImage = resolveLLAMACPPSourceImage(backendDir, req.SourceImage)
-		if llamacppSourceImage == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "source image is empty"})
-			return
-		}
-		if err := persistLLAMACPPSourceImage(backendDir, llamacppSourceImage); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to persist llamacpp image: %v", err)})
-			return
-		}
-		autodiscoverPath := clusterAutodiscoverPath()
-		commandText = fmt.Sprintf("sync llama.cpp image %s on autodiscovered nodes (%s)", llamacppSourceImage, autodiscoverPath)
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Minute)
-		defer cancel()
-		cmd = exec.CommandContext(ctx, "bash", "-lc", buildLLAMACPPSyncScript(autodiscoverPath, llamacppSourceImage))
 	case "download_hf_model":
 		hfModel := strings.TrimSpace(req.HFModel)
 		if hfModel == "" {
@@ -900,7 +897,7 @@ func (pm *ProxyManager) apiRunRecipeBackendAction(c *gin.Context) {
 	if action == "build_trtllm_image" || action == "update_trtllm_image" {
 		_ = persistTRTLLMSourceImage(backendDir, trtllmSourceImage)
 	}
-	if action == "sync_llamacpp_image" || action == "build_llamacpp" {
+	if action == "build_llamacpp" {
 		_ = persistLLAMACPPSourceImage(backendDir, llamacppSourceImage)
 	}
 
@@ -943,8 +940,7 @@ func (pm *ProxyManager) apiSaveRecipeSource(c *gin.Context) {
 		return
 	}
 
-	var parsed any
-	if err := yaml.Unmarshal([]byte(req.Content), &parsed); err != nil {
+	if err := validateRecipeYAML(req.Content); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid recipe YAML: %v", err)})
 		return
 	}
@@ -954,6 +950,7 @@ func (pm *ProxyManager) apiSaveRecipeSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	pm.syncRecipesToClusterAsync("save_recipe")
 	c.JSON(http.StatusOK, state)
 }
 
@@ -974,8 +971,7 @@ func (pm *ProxyManager) apiCreateRecipeSource(c *gin.Context) {
 		return
 	}
 
-	var parsed any
-	if err := yaml.Unmarshal([]byte(req.Content), &parsed); err != nil {
+	if err := validateRecipeYAML(req.Content); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid recipe YAML: %v", err)})
 		return
 	}
@@ -985,7 +981,55 @@ func (pm *ProxyManager) apiCreateRecipeSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	pm.syncRecipesToClusterAsync("create_recipe")
 	c.JSON(http.StatusOK, state)
+}
+
+func (pm *ProxyManager) syncRecipesToClusterAsync(reason string) {
+	configPath, err := pm.getConfigPath()
+	if err != nil {
+		pm.proxyLogger.Warnf("recipe sync skipped: %v", err)
+		return
+	}
+
+	root := filepath.Dir(configPath)
+	script := filepath.Join(root, "scripts", "sync-recipes.sh")
+	if !isExecutableFile(script) {
+		pm.proxyLogger.Warnf("recipe sync skipped: script not executable: %s", script)
+		return
+	}
+
+	label := strings.TrimSpace(reason)
+	if label != "" {
+		label = " (" + label + ")"
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, script)
+		cmd.Dir = root
+		output, runErr := cmd.CombinedOutput()
+		outText := strings.TrimSpace(string(output))
+		if runErr != nil {
+			if outText == "" {
+				outText = runErr.Error()
+			}
+			pm.proxyLogger.Errorf("recipe sync failed%s: %s", label, outText)
+			return
+		}
+		if outText != "" {
+			pm.proxyLogger.Infof("recipe sync done%s: %s", label, outText)
+		} else {
+			pm.proxyLogger.Infof("recipe sync done%s", label)
+		}
+	}()
+}
+
+func validateRecipeYAML(content string) error {
+	var parsed any
+	return yaml.Unmarshal([]byte(content), &parsed)
 }
 
 func (pm *ProxyManager) apiUpsertRecipeModel(c *gin.Context) {
@@ -995,7 +1039,7 @@ func (pm *ProxyManager) apiUpsertRecipeModel(c *gin.Context) {
 		return
 	}
 
-	state, err := pm.upsertRecipeModel(req)
+	state, err := pm.upsertRecipeModel(c.Request.Context(), req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1096,7 +1140,7 @@ func (pm *ProxyManager) recipeBackendState() RecipeBackendState {
 	return state
 }
 
-func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeUIState, error) {
+func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertRecipeModelRequest) (RecipeUIState, error) {
 	modelID := strings.TrimSpace(req.ModelID)
 	if modelID == "" {
 		return RecipeUIState{}, errors.New("modelId is required")
@@ -1123,9 +1167,10 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	}
 	recipeBackendDir := strings.TrimSpace(catalogRecipe.BackendDir)
 	if recipeBackendDir == "" {
-		recipeBackendDir = recipesBackendDir()
+		return RecipeUIState{}, fmt.Errorf("recipe %s backend not resolved; set backend: in recipe yaml", resolvedRecipeRef)
 	}
 	backendKind := detectRecipeBackendKind(recipeBackendDir)
+	recipePath := strings.TrimSpace(catalogRecipe.Path)
 
 	requestedNodes := strings.TrimSpace(req.Nodes)
 	requestedNodeList := splitAndNormalizeNodes(requestedNodes)
@@ -1147,9 +1192,41 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 		tp = 1
 	}
 
+	root, err := loadConfigRawMap(configPath)
+	if err != nil {
+		return RecipeUIState{}, err
+	}
+	ensureRecipeMacros(root, configPath)
+	modelsMap := getMap(root, "models")
+	groupsMap := getMap(root, "groups")
+
+	existing := getMap(modelsMap, modelID)
+	resolvedExtraArgs := strings.TrimSpace(req.ExtraArgs)
+	if resolvedExtraArgs == "" {
+		existingMeta := getMap(existing, "metadata")
+		existingRecipeMeta := getMap(existingMeta, recipeMetadataKey)
+		resolvedExtraArgs = strings.TrimSpace(getString(existingRecipeMeta, "extra_args"))
+	}
+	if resolvedExtraArgs == "" {
+		resolvedExtraArgs = strings.TrimSpace(catalogRecipe.DefaultExtraArgs)
+	}
+
+	autoNodeSelection := ""
+	if requestedNodes == "" && mode == "cluster" && tp <= 1 && !catalogRecipe.ClusterOnly {
+		gpuUtil := resolveGPUMemoryUtilization(recipePath, resolvedExtraArgs)
+		selected, selectErr := selectBestFitNode(parentCtx, gpuUtil)
+		if selectErr != nil {
+			return RecipeUIState{}, selectErr
+		}
+		autoNodeSelection = selected
+	}
+
 	singleNodeSelection := ""
 	if len(requestedNodeList) == 1 && tp <= 1 {
 		singleNodeSelection = requestedNodeList[0]
+	}
+	if singleNodeSelection == "" && autoNodeSelection != "" {
+		singleNodeSelection = autoNodeSelection
 	}
 
 	// For TP=1 with an explicit node, run that model on the selected node directly.
@@ -1169,14 +1246,6 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 		return RecipeUIState{}, fmt.Errorf("recipe %s requires cluster mode", recipeRefInput)
 	}
 
-	root, err := loadConfigRawMap(configPath)
-	if err != nil {
-		return RecipeUIState{}, err
-	}
-	ensureRecipeMacros(root, configPath)
-	modelsMap := getMap(root, "models")
-	groupsMap := getMap(root, "groups")
-
 	nodes := requestedNodes
 	if singleNodeSelection != "" {
 		nodes = singleNodeSelection
@@ -1195,8 +1264,10 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	}
 	// Keep single-node pinned workloads isolated so two models can load/run in
 	// parallel on different nodes without contending in the same swap group.
-	if singleNodeSelection != "" && groupName == defaultRecipeGroupName {
-		groupName = fmt.Sprintf("%s-%s", defaultRecipeGroupName, sanitizeGroupSuffix(singleNodeSelection))
+	if singleNodeSelection != "" {
+		if groupName == defaultRecipeGroupName || strings.HasPrefix(groupName, defaultRecipeGroupName+"-") {
+			groupName = fmt.Sprintf("%s-%s", defaultRecipeGroupName, sanitizeGroupSuffix(singleNodeSelection))
+		}
 	}
 
 	name := strings.TrimSpace(req.Name)
@@ -1213,7 +1284,6 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 		useModelName = catalogRecipe.Model
 	}
 
-	existing := getMap(modelsMap, modelID)
 	modelEntry := cloneMap(existing)
 	modelEntry["name"] = name
 	modelEntry["description"] = description
@@ -1228,16 +1298,6 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	modelEntry["unlisted"] = req.Unlisted
 	modelEntry["aliases"] = cleanAliases(req.Aliases)
 
-	resolvedExtraArgs := strings.TrimSpace(req.ExtraArgs)
-	if resolvedExtraArgs == "" {
-		existingMeta := getMap(existing, "metadata")
-		existingRecipeMeta := getMap(existingMeta, recipeMetadataKey)
-		resolvedExtraArgs = strings.TrimSpace(getString(existingRecipeMeta, "extra_args"))
-	}
-	if resolvedExtraArgs == "" {
-		resolvedExtraArgs = strings.TrimSpace(catalogRecipe.DefaultExtraArgs)
-	}
-
 	// Hot swap mode: don't stop cluster, just swap model. llama.cpp backend
 	// currently runs in solo mode, so hot swap is effectively disabled there.
 	hotSwap := req.HotSwap && mode == "cluster" && backendKind != "llamacpp"
@@ -1245,7 +1305,6 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 	// If custom container specified, update the recipe file
 	customContainer := strings.TrimSpace(req.ContainerImage)
 	var containerImageToStore string
-	recipePath := strings.TrimSpace(catalogRecipe.Path)
 	if customContainer != "" {
 		if recipePath != "" {
 			if recipeData, err := os.ReadFile(recipePath); err == nil {
@@ -1261,7 +1320,9 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 					}
 				}
 				if containerFound {
-					_ = os.WriteFile(recipePath, []byte(strings.Join(newLines, "\n")), 0644)
+					if err := os.WriteFile(recipePath, []byte(strings.Join(newLines, "\n")), 0644); err != nil {
+						return RecipeUIState{}, fmt.Errorf("failed to update recipe container in %s: %w", recipePath, err)
+					}
 				}
 			}
 		}
@@ -1318,46 +1379,29 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 			runner = backendRunner
 		}
 	}
-	if runner == "" {
-		fallbackRunner := filepath.Join(recipesBackendDir(), "run-recipe.sh")
-		if isExecutableFile(fallbackRunner) {
-			runner = fallbackRunner
-		}
-	}
 	if strings.TrimSpace(runner) == "" {
 		return RecipeUIState{}, fmt.Errorf("recipe runner not found for %s", resolvedRecipeRef)
 	}
 
 	var cmd string
 	if singleNodeSelection != "" {
+		ensureRemoteBackend := buildRemoteBackendEnsureExpr(singleNodeSelection, recipeBackendDir)
+
 		var remoteCmdParts []string
 		remoteCmdParts = append(remoteCmdParts, "exec ", runner, " ", quoteForCommand(resolvedRecipeRef), " --solo")
 		if tp > 0 {
 			remoteCmdParts = append(remoteCmdParts, " --tp ", strconv.Itoa(tp))
 		}
 		remoteCmdParts = append(remoteCmdParts, " --port ${PORT}")
-		if req.NonPrivileged {
-			remoteCmdParts = append(remoteCmdParts, " --non-privileged")
-			if req.MemLimitGb > 0 {
-				remoteCmdParts = append(remoteCmdParts, fmt.Sprintf(" --mem-limit-gb %d", req.MemLimitGb))
-			}
-			if req.MemSwapLimitGb > 0 {
-				remoteCmdParts = append(remoteCmdParts, fmt.Sprintf(" --mem-swap-limit-gb %d", req.MemSwapLimitGb))
-			}
-			if req.PidsLimit > 0 {
-				remoteCmdParts = append(remoteCmdParts, fmt.Sprintf(" --pids-limit %d", req.PidsLimit))
-			}
-			if req.ShmSizeGb > 0 {
-				remoteCmdParts = append(remoteCmdParts, fmt.Sprintf(" --shm-size-gb %d", req.ShmSizeGb))
-			}
-		}
+		remoteCmdParts = appendNonPrivilegedRecipeArgs(remoteCmdParts, req)
 		if resolvedExtraArgs != "" {
 			remoteCmdParts = append(remoteCmdParts, " ", quoteForCommand(resolvedExtraArgs))
 		}
 		remoteInner := strings.Join(remoteCmdParts, "")
 		remoteOuter := "bash -lc " + strconv.Quote(remoteInner)
 		cmd = fmt.Sprintf(
-			"bash -lc 'exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no %s %s'",
+			"bash -lc '%sexec ssh -o BatchMode=yes -o StrictHostKeyChecking=no %s %s'",
+			ensureRemoteBackend,
 			quoteForCommand(singleNodeSelection),
 			strconv.Quote(remoteOuter),
 		)
@@ -1384,22 +1428,7 @@ func (pm *ProxyManager) upsertRecipeModel(req upsertRecipeModelRequest) (RecipeU
 			cmdParts = append(cmdParts, " --tp ", strconv.Itoa(tp))
 		}
 		cmdParts = append(cmdParts, " --port ${PORT}")
-		// Add non-privileged mode flags if specified
-		if req.NonPrivileged {
-			cmdParts = append(cmdParts, " --non-privileged")
-			if req.MemLimitGb > 0 {
-				cmdParts = append(cmdParts, fmt.Sprintf(" --mem-limit-gb %d", req.MemLimitGb))
-			}
-			if req.MemSwapLimitGb > 0 {
-				cmdParts = append(cmdParts, fmt.Sprintf(" --mem-swap-limit-gb %d", req.MemSwapLimitGb))
-			}
-			if req.PidsLimit > 0 {
-				cmdParts = append(cmdParts, fmt.Sprintf(" --pids-limit %d", req.PidsLimit))
-			}
-			if req.ShmSizeGb > 0 {
-				cmdParts = append(cmdParts, fmt.Sprintf(" --shm-size-gb %d", req.ShmSizeGb))
-			}
-		}
+		cmdParts = appendNonPrivilegedRecipeArgs(cmdParts, req)
 		if resolvedExtraArgs != "" {
 			cmdParts = append(cmdParts, " ", quoteForCommand(resolvedExtraArgs))
 		}
@@ -1519,16 +1548,6 @@ func recipesBackendDirWithSource() (string, string) {
 	return defaultRecipesBackendSubdir, "default"
 }
 
-func localRecipesDir() string {
-	if v := strings.TrimSpace(os.Getenv(recipesLocalDirEnv)); v != "" {
-		return v
-	}
-	if home := userHomeDir(); home != "" {
-		return filepath.Join(home, "llama-swap", "recipes")
-	}
-	return filepath.FromSlash(defaultRecipesLocalSubdir)
-}
-
 func userHomeDir() string {
 	if v := strings.TrimSpace(os.Getenv("HOME")); v != "" {
 		return v
@@ -1609,45 +1628,6 @@ func discoverRecipeBackendsFromRoot(root string) []string {
 		}
 	}
 	return out
-}
-
-func recommendedRecipesBackendOptions() []string {
-	options := make([]string, 0, 8)
-	current := strings.TrimSpace(recipesBackendDir())
-	if current != "" {
-		options = append(options, current)
-	}
-	if override := strings.TrimSpace(getRecipesBackendOverride()); override != "" {
-		options = append(options, override)
-	}
-	if v := strings.TrimSpace(os.Getenv(recipesBackendDirEnv)); v != "" {
-		options = append(options, v)
-	}
-
-	roots := make([]string, 0, 8)
-	if current != "" {
-		roots = append(roots, filepath.Dir(current))
-	}
-	if home := userHomeDir(); home != "" {
-		roots = append(roots, filepath.Join(home, "swap-laboratories", "backend"))
-	}
-	if wd, err := os.Getwd(); err == nil {
-		roots = append(roots, filepath.Join(wd, "backend"))
-	}
-	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		roots = append(roots,
-			filepath.Join(exeDir, "backend"),
-			filepath.Join(exeDir, "..", "backend"),
-			filepath.Join(exeDir, "..", "..", "backend"),
-		)
-	}
-
-	for _, root := range uniqueExistingDirs(roots) {
-		options = append(options, discoverRecipeBackendsFromRoot(root)...)
-	}
-
-	return uniqueExistingDirs(options)
 }
 
 func detectRecipeBackendKind(backendDir string) string {
@@ -1916,11 +1896,6 @@ func recipeBackendActionsForKind(kind, backendDir, repoURL string) []RecipeBacke
 				Label:       "Build llama.cpp (latest)",
 				CommandHint: "git fetch tags + checkout latest release + build-llama-cpp-spark.sh + docker save/load to autodiscovered peers",
 			},
-			RecipeBackendActionInfo{
-				Action:      "sync_llamacpp_image",
-				Label:       "Update llama.cpp Image",
-				CommandHint: "docker pull <selected> on autodiscovered nodes + persist as new default",
-			},
 		)
 		return actions
 	}
@@ -2028,6 +2003,14 @@ type nvcrTagsResponse struct {
 	Tags []string `json:"tags"`
 }
 
+func nvcrStatusError(resp *http.Response, context string) error {
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+	return fmt.Errorf("%s failed: %s %s", context, resp.Status, strings.TrimSpace(string(body)))
+}
+
 func fetchTRTLLMReleaseTags(ctx context.Context) ([]string, error) {
 	authReq, err := http.NewRequestWithContext(ctx, http.MethodGet, nvcrProxyAuthURL, nil)
 	if err != nil {
@@ -2038,9 +2021,8 @@ func fetchTRTLLMReleaseTags(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	defer authResp.Body.Close()
-	if authResp.StatusCode < 200 || authResp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(authResp.Body, 2048))
-		return nil, fmt.Errorf("nvcr auth failed: %s %s", authResp.Status, strings.TrimSpace(string(body)))
+	if err := nvcrStatusError(authResp, "nvcr auth"); err != nil {
+		return nil, err
 	}
 	var auth nvcrProxyAuthResponse
 	if err := json.NewDecoder(authResp.Body).Decode(&auth); err != nil {
@@ -2061,9 +2043,8 @@ func fetchTRTLLMReleaseTags(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	defer tagsResp.Body.Close()
-	if tagsResp.StatusCode < 200 || tagsResp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(tagsResp.Body, 2048))
-		return nil, fmt.Errorf("nvcr tags failed: %s %s", tagsResp.Status, strings.TrimSpace(string(body)))
+	if err := nvcrStatusError(tagsResp, "nvcr tags"); err != nil {
+		return nil, err
 	}
 
 	var payload nvcrTagsResponse
@@ -2276,63 +2257,42 @@ func uniqueExistingDirs(paths []string) []string {
 	return out
 }
 
-func appendUniquePath(paths []string, candidate string) []string {
-	candidate = strings.TrimSpace(candidate)
-	if candidate == "" {
-		return paths
+func (pm *ProxyManager) resolveOverrideFilePath(envName, filename string) string {
+	if v := strings.TrimSpace(os.Getenv(envName)); v != "" {
+		return expandLeadingTilde(v)
 	}
-	absCandidate, err := filepath.Abs(candidate)
-	if err == nil {
-		candidate = absCandidate
-	}
-	for _, p := range paths {
-		if p == candidate {
-			return paths
+	if pm != nil {
+		if cfgPath := strings.TrimSpace(pm.configPath); cfgPath != "" {
+			return filepath.Join(filepath.Dir(cfgPath), filename)
 		}
 	}
-	return append(paths, candidate)
+	if home := userHomeDir(); home != "" {
+		return filepath.Join(home, ".config", "llama-swap", filename)
+	}
+	return ""
 }
 
 func (pm *ProxyManager) recipesBackendOverrideFile() string {
-	if v := strings.TrimSpace(os.Getenv(recipesBackendOverrideFileEnv)); v != "" {
-		return expandLeadingTilde(v)
-	}
-	if pm != nil {
-		if cfgPath := strings.TrimSpace(pm.configPath); cfgPath != "" {
-			return filepath.Join(filepath.Dir(cfgPath), ".recipes_backend_dir")
-		}
-	}
-	if home := userHomeDir(); home != "" {
-		return filepath.Join(home, ".config", "llama-swap", "recipes_backend_dir")
-	}
-	return ""
+	return pm.resolveOverrideFilePath(recipesBackendOverrideFileEnv, ".recipes_backend_dir")
 }
 
 func (pm *ProxyManager) hfHubPathOverrideFile() string {
-	if v := strings.TrimSpace(os.Getenv(hfHubPathOverrideFileEnv)); v != "" {
-		return expandLeadingTilde(v)
-	}
-	if pm != nil {
-		if cfgPath := strings.TrimSpace(pm.configPath); cfgPath != "" {
-			return filepath.Join(filepath.Dir(cfgPath), ".hf_hub_path")
-		}
-	}
-	if home := userHomeDir(); home != "" {
-		return filepath.Join(home, ".config", "llama-swap", "hf_hub_path")
-	}
-	return ""
+	return pm.resolveOverrideFilePath(hfHubPathOverrideFileEnv, ".hf_hub_path")
 }
 
-func (pm *ProxyManager) loadRecipesBackendOverride() {
-	path := pm.recipesBackendOverrideFile()
+func loadOverridePath(path string) string {
 	if path == "" {
-		return
+		return ""
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return ""
 	}
-	value := expandLeadingTilde(strings.TrimSpace(string(raw)))
+	return expandLeadingTilde(strings.TrimSpace(string(raw)))
+}
+
+func (pm *ProxyManager) loadRecipesBackendOverride() {
+	value := loadOverridePath(pm.recipesBackendOverrideFile())
 	if value == "" {
 		return
 	}
@@ -2340,47 +2300,11 @@ func (pm *ProxyManager) loadRecipesBackendOverride() {
 }
 
 func (pm *ProxyManager) loadHFHubPathOverride() {
-	path := pm.hfHubPathOverrideFile()
-	if path == "" {
-		return
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	value := expandLeadingTilde(strings.TrimSpace(string(raw)))
+	value := loadOverridePath(pm.hfHubPathOverrideFile())
 	if value == "" {
 		return
 	}
 	setHFHubPathOverride(value)
-}
-
-func (pm *ProxyManager) persistRecipesBackendOverride(path string) error {
-	filePath := pm.recipesBackendOverrideFile()
-	if filePath == "" {
-		return nil
-	}
-
-	path = strings.TrimSpace(path)
-	if path == "" {
-		if err := os.Remove(filePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		return nil
-	}
-
-	parent := filepath.Dir(filePath)
-	if parent != "" {
-		if err := os.MkdirAll(parent, 0755); err != nil {
-			return err
-		}
-	}
-
-	tmp := filePath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(path+"\n"), 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, filePath)
 }
 
 func (pm *ProxyManager) persistHFHubPathOverride(path string) error {
@@ -2419,113 +2343,6 @@ func (pm *ProxyManager) getConfigPath() (string, error) {
 		return v, nil
 	}
 	return "", errors.New("config path is unknown (start llama-swap with --config)")
-}
-
-func normalizeBackendConfigKind(kind string) string {
-	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "vllm", "trtllm", "sqlang", "llamacpp":
-		return strings.ToLower(strings.TrimSpace(kind))
-	default:
-		return "custom"
-	}
-}
-
-func backendScopedConfigPath(configPath, backendKind string) string {
-	configPath = strings.TrimSpace(configPath)
-	if configPath == "" {
-		return ""
-	}
-	ext := filepath.Ext(configPath)
-	if ext == "" {
-		ext = ".yaml"
-	}
-	base := strings.TrimSuffix(filepath.Base(configPath), ext)
-	kind := normalizeBackendConfigKind(backendKind)
-	return filepath.Join(filepath.Dir(configPath), fmt.Sprintf("%s.%s%s", base, kind, ext))
-}
-
-func copyFileAtomic(src, dst string) error {
-	raw, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	parent := filepath.Dir(dst)
-	if parent != "" {
-		if err := os.MkdirAll(parent, 0755); err != nil {
-			return err
-		}
-	}
-	tmp := dst + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dst)
-}
-
-func (pm *ProxyManager) switchRecipeBackendConfig(previousKind, nextKind string) error {
-	configPath, err := pm.getConfigPath()
-	if err != nil {
-		return err
-	}
-
-	prevKind := normalizeBackendConfigKind(previousKind)
-	nextKindNorm := normalizeBackendConfigKind(nextKind)
-	if prevKind == nextKindNorm {
-		return nil
-	}
-
-	prevScoped := backendScopedConfigPath(configPath, prevKind)
-	if prevScoped != "" && prevScoped != configPath {
-		if err := copyFileAtomic(configPath, prevScoped); err != nil {
-			return err
-		}
-	}
-
-	nextScoped := backendScopedConfigPath(configPath, nextKindNorm)
-	if nextScoped == "" || nextScoped == configPath {
-		return nil
-	}
-	if _, err := os.Stat(nextScoped); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-
-	return copyFileAtomic(nextScoped, configPath)
-}
-
-func (pm *ProxyManager) persistActiveConfigForBackend(kind string) error {
-	configPath, err := pm.getConfigPath()
-	if err != nil {
-		return err
-	}
-
-	scopedPath := backendScopedConfigPath(configPath, kind)
-	if scopedPath == "" || scopedPath == configPath {
-		return nil
-	}
-	return copyFileAtomic(configPath, scopedPath)
-}
-
-func (pm *ProxyManager) syncRecipeBackendMacros() error {
-	configPath, err := pm.getConfigPath()
-	if err != nil {
-		return err
-	}
-
-	root, err := loadConfigRawMap(configPath)
-	if err != nil {
-		return err
-	}
-	ensureRecipeMacros(root, configPath)
-	if err := writeConfigRawMap(configPath, root); err != nil {
-		return err
-	}
-
-	if conf, err := config.LoadConfig(configPath); err == nil {
-		pm.applyConfigAndSyncProcessGroups(normalizeLegacyVLLMConfigCommands(conf))
-	}
-	return nil
 }
 
 func recipesCatalogPrimaryDir() string {
@@ -2679,33 +2496,12 @@ func resolveRecipeBackendDirFromMeta(meta recipeCatalogMeta, recipePath, backend
 		return backend
 	}
 
-	runtime := strings.ToLower(strings.TrimSpace(meta.Runtime))
-	container := strings.ToLower(strings.TrimSpace(meta.Container))
-	switch {
-	case strings.Contains(runtime, "llama"), strings.Contains(container, "llama-cpp"):
-		if backend := resolveKnownBackendByName("spark-llama-cpp"); backend != "" {
-			return backend
-		}
-	case strings.Contains(runtime, "vllm"), strings.Contains(runtime, "trtllm"), strings.Contains(container, "vllm"):
-		if backend := resolveKnownBackendByName("spark-vllm-docker"); backend != "" {
-			return backend
-		}
-	}
-
 	backendDirHint = strings.TrimSpace(backendDirHint)
 	if backendDirHint != "" && isRecipeBackendDir(backendDirHint) {
 		if abs, err := filepath.Abs(backendDirHint); err == nil {
 			return abs
 		}
 		return filepath.Clean(backendDirHint)
-	}
-
-	fallback := strings.TrimSpace(recipesBackendDir())
-	if fallback != "" && isRecipeBackendDir(fallback) {
-		if abs, err := filepath.Abs(fallback); err == nil {
-			return abs
-		}
-		return filepath.Clean(fallback)
 	}
 	return ""
 }
@@ -3112,7 +2908,7 @@ func buildVLLMContainerDetectExpr(containerImage string) string {
 	if containerImage != "" {
 		return fmt.Sprintf(
 			"docker ps --filter %s --format \"{{.Names}}\" | head -n 1",
-			quoteForCommand("ancestor="+containerImage),
+			quoteForShellLiteral("ancestor="+containerImage),
 		)
 	}
 	return "docker ps --format \"{{.Names}}\t{{.Image}}\" | awk \"BEGIN{IGNORECASE=1} \\$1 ~ /vllm/ || \\$2 ~ /vllm/ {print \\$1; exit}\""
@@ -3126,15 +2922,13 @@ func buildVLLMStopExpr(containerImage string) string {
 	)
 }
 
-func backendStopExpr(kind string) string {
-	return backendStopExprWithContainer(kind, "")
-}
-
 func backendStopExprWithContainer(kind, containerImage string) string {
 	kind = strings.ToLower(strings.TrimSpace(kind))
 	switch kind {
 	case "llamacpp":
-		return "docker rm -f llama_cpp_spark_${PORT} >/dev/null 2>&1 || true"
+		// Match current naming (llama_cpp_spark_<safe_ref>_<port>) and legacy
+		// naming (llama_cpp_spark_<port>) so Unload works across versions.
+		return "LLAMA_CPP_CONTAINER=\"$(docker ps --format \"{{.Names}}\" | grep -E \"^llama_cpp_spark_.*_${PORT}$|^llama_cpp_spark_${PORT}$\" | head -n 1)\"; if [ -n \"$LLAMA_CPP_CONTAINER\" ]; then docker rm -f \"$LLAMA_CPP_CONTAINER\" >/dev/null 2>&1 || true; fi"
 	default:
 		return buildVLLMStopExpr(containerImage)
 	}
@@ -3217,10 +3011,6 @@ func hasMacro(root map[string]any, name string) bool {
 	macros := getMap(root, "macros")
 	_, ok := macros[name]
 	return ok
-}
-
-func backendMacroExpr(root map[string]any, suffix string) (string, bool) {
-	return backendMacroExprForKind(root, detectRecipeBackendKind(recipesBackendDir()), suffix)
 }
 
 func backendMacroExprForKind(root map[string]any, kind string, suffix string) (string, bool) {
@@ -3585,6 +3375,26 @@ func intFromAny(v any) int {
 	}
 }
 
+func floatFromAny(v any) float64 {
+	switch t := v.(type) {
+	case float64:
+		return t
+	case float32:
+		return float64(t)
+	case int:
+		return float64(t)
+	case int32:
+		return float64(t)
+	case int64:
+		return float64(t)
+	case string:
+		f, _ := strconv.ParseFloat(strings.TrimSpace(t), 64)
+		return f
+	default:
+		return 0
+	}
+}
+
 func stringFromAny(v any) string {
 	if v == nil {
 		return ""
@@ -3668,11 +3478,222 @@ func buildHotSwapVLLMCommand(recipePath string, tp int, extraArgs string) (strin
 	return command, nil
 }
 
+type nodeGPUFitCandidate struct {
+	Node        string
+	MaxFreeMiB  int
+	MaxTotalMiB int
+	MarginMiB   int
+	Err         error
+}
+
+func resolveGPUMemoryUtilization(recipePath, extraArgs string) float64 {
+	if v, ok := parseGPUUtilizationFromExtraArgs(extraArgs); ok {
+		return v
+	}
+	if v := defaultRecipeGPUMemoryUtilization(recipePath); v > 0 {
+		return v
+	}
+	return 0.7
+}
+
+func parseGPUUtilizationFromExtraArgs(extraArgs string) (float64, bool) {
+	extraArgs = strings.TrimSpace(extraArgs)
+	if extraArgs == "" {
+		return 0, false
+	}
+	for _, re := range []*regexp.Regexp{gpuMemoryUtilRe, gpuMemoryUtilAltRe} {
+		if re == nil {
+			continue
+		}
+		match := re.FindStringSubmatch(extraArgs)
+		if len(match) < 2 {
+			continue
+		}
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(match[1]), 64)
+		if err != nil {
+			continue
+		}
+		if normalized, ok := normalizeGPUUtilization(parsed); ok {
+			return normalized, true
+		}
+	}
+	return 0, false
+}
+
+func normalizeGPUUtilization(value float64) (float64, bool) {
+	if value <= 0 {
+		return 0, false
+	}
+	if value > 1 && value <= 100 {
+		value = value / 100
+	}
+	if value <= 0 || value > 1 {
+		return 0, false
+	}
+	return value, true
+}
+
+func defaultRecipeGPUMemoryUtilization(recipePath string) float64 {
+	recipePath = strings.TrimSpace(recipePath)
+	if recipePath == "" {
+		return 0
+	}
+	raw, err := os.ReadFile(recipePath)
+	if err != nil {
+		return 0
+	}
+	var recipe recipeCommandTemplate
+	if err := yaml.Unmarshal(raw, &recipe); err != nil {
+		return 0
+	}
+	parsed := floatFromAny(recipe.Defaults["gpu_memory_utilization"])
+	if normalized, ok := normalizeGPUUtilization(parsed); ok {
+		return normalized
+	}
+	return 0
+}
+
+func selectBestFitNode(parentCtx context.Context, gpuUtil float64) (string, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 20*time.Second)
+	defer cancel()
+
+	nodes, localIP, err := discoverClusterNodeIPs(ctx)
+	if err != nil {
+		return "", err
+	}
+	return selectBestFitNodeFromList(ctx, nodes, localIP, gpuUtil)
+}
+
+func selectBestFitNodeFromList(parentCtx context.Context, nodes []string, localIP string, gpuUtil float64) (string, error) {
+	if len(nodes) == 0 {
+		return "", fmt.Errorf("auto node selection failed: no nodes available")
+	}
+	if normalized, ok := normalizeGPUUtilization(gpuUtil); ok {
+		gpuUtil = normalized
+	} else {
+		gpuUtil = 0.7
+	}
+
+	localIPs := localIPv4AddressSet()
+	results := make([]nodeGPUFitCandidate, len(nodes))
+
+	var wg sync.WaitGroup
+	for idx, host := range nodes {
+		idx := idx
+		host := strings.TrimSpace(host)
+		if host == "" {
+			continue
+		}
+		isLocal := host == strings.TrimSpace(localIP) || isKnownLocalIP(localIPs, host)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			devices, err := queryNodeGPUMemory(parentCtx, host, isLocal)
+			if err != nil {
+				results[idx] = nodeGPUFitCandidate{Node: host, Err: err}
+				return
+			}
+			best := nodeGPUFitCandidate{
+				Node:      host,
+				MarginMiB: -1 << 30,
+			}
+			for _, dev := range devices {
+				required := int(math.Ceil(gpuUtil * float64(dev.TotalMiB)))
+				margin := dev.FreeMiB - required
+				if margin > best.MarginMiB {
+					best.MaxFreeMiB = dev.FreeMiB
+					best.MaxTotalMiB = dev.TotalMiB
+					best.MarginMiB = margin
+				}
+			}
+			if best.MarginMiB < 0 {
+				best.Err = fmt.Errorf("insufficient GPU free memory: max free %d MiB of %d MiB (need %.0f%%)",
+					best.MaxFreeMiB,
+					best.MaxTotalMiB,
+					gpuUtil*100,
+				)
+			}
+			results[idx] = best
+		}()
+	}
+	wg.Wait()
+
+	var best *nodeGPUFitCandidate
+	for idx := range results {
+		candidate := results[idx]
+		if candidate.Node == "" || candidate.Err != nil {
+			continue
+		}
+		if best == nil || candidate.MarginMiB > best.MarginMiB || (candidate.MarginMiB == best.MarginMiB && candidate.MaxFreeMiB > best.MaxFreeMiB) {
+			best = &candidate
+		}
+	}
+	if best != nil {
+		return best.Node, nil
+	}
+
+	errorsList := make([]string, 0, len(results))
+	for _, candidate := range results {
+		if candidate.Node == "" || candidate.Err == nil {
+			continue
+		}
+		errorsList = append(errorsList, fmt.Sprintf("%s (%v)", candidate.Node, candidate.Err))
+	}
+	if len(errorsList) == 0 {
+		return "", fmt.Errorf("auto node selection failed: no eligible nodes")
+	}
+	return "", fmt.Errorf("auto node selection failed: %s", strings.Join(errorsList, "; "))
+}
+
+func quoteForShellLiteral(s string) string {
+	if s == "" {
+		return "''"
+	}
+	// Single-quote shell escaping.
+	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
 func quoteForCommand(s string) string {
 	if strings.ContainsAny(s, " \t\"") {
 		return strconv.Quote(s)
 	}
 	return s
+}
+
+func buildRemoteBackendEnsureExpr(node, backendDir string) string {
+	node = strings.TrimSpace(node)
+	backendDir = strings.TrimSpace(backendDir)
+	if node == "" || backendDir == "" {
+		return ""
+	}
+
+	backendDir = filepath.Clean(backendDir)
+	runnerPath := filepath.Join(backendDir, "run-recipe.sh")
+	if !isExecutableFile(runnerPath) {
+		return ""
+	}
+
+	backendParent := filepath.Dir(backendDir)
+	backendBase := filepath.Base(backendDir)
+	if backendParent == "" || backendParent == "." || backendBase == "" || backendBase == "." {
+		return ""
+	}
+
+	remoteCheckInner := "test -x " + strconv.Quote(runnerPath)
+	remoteCheckCmd := "bash -lc " + strconv.Quote(remoteCheckInner)
+
+	remoteExtractInner := fmt.Sprintf(
+		"mkdir -p %s && tar -C %s -xf -",
+		strconv.Quote(backendParent),
+		strconv.Quote(backendParent),
+	)
+	remoteExtractCmd := "bash -lc " + strconv.Quote(remoteExtractInner)
+
+	return strings.Join([]string{
+		"if ! ssh -o BatchMode=yes -o StrictHostKeyChecking=no ", quoteForCommand(node), " ", strconv.Quote(remoteCheckCmd), " >/dev/null 2>&1; then ",
+		"tar -C ", strconv.Quote(backendParent), " -cf - ", strconv.Quote(backendBase),
+		" | ssh -o BatchMode=yes -o StrictHostKeyChecking=no ", quoteForCommand(node), " ", strconv.Quote(remoteExtractCmd), " >/dev/null; fi; ",
+	}, "")
 }
 
 func splitAndNormalizeNodes(raw string) []string {
@@ -3772,39 +3793,6 @@ func buildLLAMACPPBuildAndSyncScript(backendDir, autodiscoverPath, image string)
 	}, "\n")
 }
 
-func buildLLAMACPPSyncScript(autodiscoverPath, image string) string {
-	return strings.Join([]string{
-		"set -euo pipefail",
-		fmt.Sprintf("IMAGE=%s", shellQuote(strings.TrimSpace(image))),
-		fmt.Sprintf("AUTODISCOVER=%s", shellQuote(strings.TrimSpace(autodiscoverPath))),
-		"if [ ! -f \"$AUTODISCOVER\" ]; then",
-		"  echo \"autodiscover.sh not found: $AUTODISCOVER\" >&2",
-		"  exit 1",
-		"fi",
-		"source \"$AUTODISCOVER\"",
-		"detect_nodes || true",
-		"if [ -z \"${NODES_ARG:-}\" ]; then detect_local_ip || true; fi",
-		"NODES_RAW=\"${NODES_ARG:-${LOCAL_IP:-}}\"",
-		"if [ -z \"$NODES_RAW\" ]; then",
-		"  echo \"No nodes detected for llama.cpp image sync\" >&2",
-		"  exit 1",
-		"fi",
-		"IFS=',' read -r -a NODES <<< \"$NODES_RAW\"",
-		"LOCAL=\"${LOCAL_IP:-}\"",
-		"for node in \"${NODES[@]}\"; do",
-		"  node=\"$(echo \"$node\" | xargs)\"",
-		"  [ -z \"$node\" ] && continue",
-		"  if [ \"$node\" = \"$LOCAL\" ] || [ \"$node\" = \"127.0.0.1\" ] || [ \"$node\" = \"localhost\" ]; then",
-		"    echo \"[local] docker pull $IMAGE\"",
-		"    docker pull \"$IMAGE\"",
-		"  else",
-		"    echo \"[$node] docker pull $IMAGE\"",
-		"    ssh -o BatchMode=yes -o ConnectTimeout=8 -o ConnectionAttempts=2 -o StrictHostKeyChecking=accept-new \"$node\" \"docker pull $IMAGE\"",
-		"  fi",
-		"done",
-	}, "\n")
-}
-
 func ensureCommandPathIncludesUserLocalBin(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
@@ -3853,25 +3841,35 @@ func tailString(s string, max int) string {
 	return "...(truncated)\n" + s[len(s)-max:]
 }
 
-func loadLLAMACPPSourceImage(backendDir string) string {
-	overrideFile := filepath.Join(backendDir, llamacppSourceImageOverrideFile)
-	data, err := os.ReadFile(overrideFile)
+func loadSourceImageOverride(backendDir, overrideFileName string) string {
+	data, err := os.ReadFile(filepath.Join(backendDir, overrideFileName))
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
 }
 
-func persistLLAMACPPSourceImage(backendDir, image string) error {
-	overrideFile := filepath.Join(backendDir, llamacppSourceImageOverrideFile)
+func persistSourceImageOverride(backendDir, overrideFileName, image string, removeIfEmpty, trailingNewline bool) error {
+	overrideFile := filepath.Join(backendDir, overrideFileName)
 	image = strings.TrimSpace(image)
-	if image == "" {
+	if image == "" && removeIfEmpty {
 		if err := os.Remove(overrideFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		return nil
 	}
-	return os.WriteFile(overrideFile, []byte(image+"\n"), 0644)
+	if trailingNewline {
+		image += "\n"
+	}
+	return os.WriteFile(overrideFile, []byte(image), 0644)
+}
+
+func loadLLAMACPPSourceImage(backendDir string) string {
+	return loadSourceImageOverride(backendDir, llamacppSourceImageOverrideFile)
+}
+
+func persistLLAMACPPSourceImage(backendDir, image string) error {
+	return persistSourceImageOverride(backendDir, llamacppSourceImageOverrideFile, image, true, true)
 }
 
 func readDefaultLLAMACPPSourceImage(backendDir string) string {
@@ -3924,17 +3922,11 @@ func buildLLAMACPPImageState(backendDir string) *RecipeBackendLLAMACPPImage {
 // NVIDIA Image Functions
 
 func loadNVIDIASourceImage(backendDir string) string {
-	overrideFile := filepath.Join(backendDir, nvidiaSourceImageOverrideFile)
-	data, err := os.ReadFile(overrideFile)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
+	return loadSourceImageOverride(backendDir, nvidiaSourceImageOverrideFile)
 }
 
 func persistNVIDIASourceImage(backendDir, image string) error {
-	overrideFile := filepath.Join(backendDir, nvidiaSourceImageOverrideFile)
-	return os.WriteFile(overrideFile, []byte(strings.TrimSpace(image)), 0644)
+	return persistSourceImageOverride(backendDir, nvidiaSourceImageOverrideFile, image, false, false)
 }
 
 // isNVIDIANGCImage checks if an image reference is from NVIDIA NGC Catalog
@@ -3986,49 +3978,36 @@ func fetchNVIDIAReleaseTags(ctx context.Context) ([]string, error) {
 	return tags, nil
 }
 
-func latestNVIDIATag(tags []string) string {
-	if len(tags) == 0 {
-		return ""
-	}
+type nvidiaImageVersion struct {
+	imageRef string
+	major    int
+	minor    int
+	patch    int
+}
 
-	// Tags are now full image references like "nvcr.io/nvidia/vllm:26.01-py3"
-	// Extract versions and sort them
-	type version struct {
-		imageRef string
-		version  string
-		major    int
-		minor    int
-		patch    int
-	}
-
-	versions := make([]version, 0, len(tags))
+func sortedNVIDIAImageVersions(tags []string) []nvidiaImageVersion {
+	versions := make([]nvidiaImageVersion, 0, len(tags))
 	for _, imageRef := range tags {
 		ver := extractNVIDIAVersion(imageRef)
-		if ver != "" {
-			// Parse version like "26.01-py3" or "26.01"
-			var major, minor, patch int
-			var numFields int
-			n, _ := fmt.Sscanf(ver, "%d.%d.%d-%*s%n", &major, &minor, &patch, &numFields)
-			if n < 3 {
-				n, _ = fmt.Sscanf(ver, "%d.%d-%*s%n", &major, &minor, &numFields)
-			}
-			if n >= 2 {
-				versions = append(versions, version{
-					imageRef: imageRef,
-					version:  ver,
-					major:    major,
-					minor:    minor,
-					patch:    patch,
-				})
-			}
+		if ver == "" {
+			continue
+		}
+		var major, minor, patch int
+		var numFields int
+		n, _ := fmt.Sscanf(ver, "%d.%d.%d-%*s%n", &major, &minor, &patch, &numFields)
+		if n < 3 {
+			n, _ = fmt.Sscanf(ver, "%d.%d-%*s%n", &major, &minor, &numFields)
+		}
+		if n >= 2 {
+			versions = append(versions, nvidiaImageVersion{
+				imageRef: imageRef,
+				major:    major,
+				minor:    minor,
+				patch:    patch,
+			})
 		}
 	}
 
-	if len(versions) == 0 {
-		return tags[0]
-	}
-
-	// Sort by major.minor.patch descending
 	sort.Slice(versions, func(i, j int) bool {
 		if versions[i].major != versions[j].major {
 			return versions[i].major > versions[j].major
@@ -4038,6 +4017,18 @@ func latestNVIDIATag(tags []string) string {
 		}
 		return versions[i].patch > versions[j].patch
 	})
+	return versions
+}
+
+func latestNVIDIATag(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+
+	versions := sortedNVIDIAImageVersions(tags)
+	if len(versions) == 0 {
+		return tags[0]
+	}
 
 	return versions[0].imageRef
 }
@@ -4056,52 +4047,17 @@ func topNVIDIATags(tags []string, limit int) []string {
 		return tags
 	}
 
-	// Tags are full image references, sort them by version
-	type version struct {
-		imageRef string
-		version  string
-		major    int
-		minor    int
-		patch    int
+	versions := sortedNVIDIAImageVersions(tags)
+	if len(versions) == 0 {
+		return tags[:limit]
 	}
 
-	versions := make([]version, 0, len(tags))
-	for _, imageRef := range tags {
-		ver := extractNVIDIAVersion(imageRef)
-		if ver != "" {
-			var major, minor, patch int
-			var numFields int
-			n, _ := fmt.Sscanf(ver, "%d.%d.%d-%*s%n", &major, &minor, &patch, &numFields)
-			if n < 3 {
-				n, _ = fmt.Sscanf(ver, "%d.%d-%*s%n", &major, &minor, &numFields)
-			}
-			if n >= 2 {
-				versions = append(versions, version{
-					imageRef: imageRef,
-					version:  ver,
-					major:    major,
-					minor:    minor,
-					patch:    patch,
-				})
-			}
-		}
-	}
-
-	// Sort by major.minor.patch descending
-	sort.Slice(versions, func(i, j int) bool {
-		if versions[i].major != versions[j].major {
-			return versions[i].major > versions[j].major
-		}
-		if versions[i].minor != versions[j].minor {
-			return versions[i].minor > versions[j].minor
-		}
-		return versions[i].patch > versions[j].patch
-	})
-
-	// Return top limit image refs
 	result := make([]string, 0, limit)
 	for i := 0; i < limit && i < len(versions); i++ {
 		result = append(result, versions[i].imageRef)
+	}
+	if len(result) == 0 {
+		return tags[:limit]
 	}
 	return result
 }

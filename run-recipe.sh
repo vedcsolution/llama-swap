@@ -167,6 +167,62 @@ find_recipe_in_backends() {
   return 1
 }
 
+find_recipe_in_catalog() {
+  local wanted="$1"
+  python3 - "$RECIPES_ROOT" "$wanted" <<'PY'
+import sys
+from pathlib import Path
+
+try:
+    import yaml
+except Exception:
+    print("")
+    raise SystemExit(0)
+
+root = Path(sys.argv[1])
+wanted = sys.argv[2].strip()
+
+def trim_ext(value: str) -> str:
+    v = value
+    if v.endswith(".yaml"):
+        v = v[:-5]
+    elif v.endswith(".yml"):
+        v = v[:-4]
+    return v
+
+wanted_no_ext = trim_ext(wanted)
+wanted_norm = wanted_no_ext.lower()
+
+if not root.exists():
+    print("")
+    raise SystemExit(0)
+
+for path in sorted(root.rglob("*")):
+    if path.suffix.lower() not in {".yaml", ".yml"}:
+        continue
+
+    rel = trim_ext(path.relative_to(root).as_posix())
+    base = rel.split("/")[-1]
+
+    # Direct rel-path or basename matches first.
+    if rel.lower() == wanted_norm or base.lower() == wanted_norm:
+        print(str(path))
+        raise SystemExit(0)
+
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        continue
+
+    recipe_ref = trim_ext(str(data.get("recipe_ref") or "").strip())
+    if recipe_ref and recipe_ref.lower() == wanted_norm:
+        print(str(path))
+        raise SystemExit(0)
+
+print("")
+PY
+}
+
 if [[ $# -lt 1 ]]; then
   usage
   exit 1
@@ -193,6 +249,9 @@ else
       break
     fi
   done
+  if [[ -z "$recipe_file" ]]; then
+    recipe_file="$(find_recipe_in_catalog "$recipe_input" || true)"
+  fi
 fi
 
 if [[ -n "$recipe_file" ]]; then
@@ -248,7 +307,9 @@ if [[ -n "$recipe_file" ]]; then
       backend_recipe_ref="$(trim_ext "$backend_recipe_ref")"
     fi
   else
-    # Keep full path for recipes stored outside backend/recipes (e.g. top-level recipes/).
+    # For top-level recipes, always pass the resolved file path.
+    # Backend runners can parse the recipe directly, which avoids coupling
+    # top-level UI metadata (e.g. recipe_ref) to backend-local recipe IDs.
     backend_recipe_ref="$recipe_file"
   fi
 fi

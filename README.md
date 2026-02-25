@@ -8,18 +8,17 @@ Upstream project: [mostlygeek/llama-swap](https://github.com/mostlygeek/llama-sw
 
 This repository keeps the core model-swap proxy behavior and adds an operations layer tailored for multi-node recipe workflows:
 
-- Backend selector in UI (`Backend` page) with defaults based on `~`:
-  - `~/spark-vllm-docker`
-  - `~/spark-trtllm-docker`
-  - `~/spark-sqlang-docker`
+- Backend selector in UI (`Backend` page) with persisted override and backend discovery from `swap-laboratories/backend/*` (default active backend: `~/swap-laboratories/backend/spark-vllm-docker`).
 - Recipe Manager in UI (`Models` page) to create/update/delete managed models from backend recipes.
 - Cluster diagnostics page (`Cluster`) using backend `autodiscover.sh` + SSH checks.
 - YAML Config Editor (`Editor`) with CodeMirror syntax highlighting + validation on save.
 - llama-benchy integration in UI and API, including intelligence plugins.
 - Extra backend actions from UI:
-  - `git pull --ff-only https://github.com/eugr/spark-vllm-docker main`
-  - `./build-and-copy.sh --rebuild-deps --rebuild-vllm -c`
-  - `./build-and-copy.sh -t vllm-node-mxfp4 --rebuild-deps --rebuild-vllm --exp-mxfp4 -c`
+  - Git sync (`git_pull`, `git_pull_rebase`)
+  - HF model download (`download_hf_model` via `hf-download.sh`)
+  - vLLM builds (`build_vllm`, `build_mxfp4`, `build_vllm_12_0f`)
+  - TRT-LLM and NVIDIA image management (`pull_*_image`, `update_*_image`)
+  - llama.cpp image build (`build_llamacpp`)
 - Home-safe path rendering in UI (`~` instead of hardcoded absolute home path in labels).
 
 ## Core Behavior (Inherited + Extended)
@@ -64,8 +63,14 @@ Then open:
 Use the UI `Backend` tab or env var:
 
 ```bash
-export LLAMA_SWAP_RECIPES_BACKEND_DIR="$HOME/spark-vllm-docker"
+export LLAMA_SWAP_RECIPES_BACKEND_DIR="$HOME/swap-laboratories/backend/spark-vllm-docker"
 ```
+
+Backend selection precedence is:
+
+1. persisted override (`LLAMA_SWAP_RECIPES_BACKEND_OVERRIDE_FILE`)
+2. `LLAMA_SWAP_RECIPES_BACKEND_DIR`
+3. default `~/swap-laboratories/backend/spark-vllm-docker`
 
 A valid backend directory must contain:
 
@@ -132,14 +137,28 @@ Intelligence plugin source:
 - `POST /api/models/unload/:model`
 - `POST /api/cluster/stop`
 - `GET /api/cluster/status`
+- `POST /api/cluster/dgx/update`
+- `GET /api/images/docker`
+- `POST /api/images/docker/update`
+- `POST /api/images/docker/delete`
 - `GET /api/config/editor`
 - `PUT /api/config/editor`
 - `GET /api/recipes/state`
 - `GET /api/recipes/backend`
 - `PUT /api/recipes/backend`
+- `GET /api/recipes/containers`
+- `GET /api/recipes/selected-container`
+- `PUT /api/recipes/selected-container`
 - `POST /api/recipes/backend/action`
+- `GET /api/recipes/backend/action-status`
+- `GET /api/recipes/backend/hf-models`
+- `PUT /api/recipes/backend/hf-models/path`
+- `DELETE /api/recipes/backend/hf-models`
 - `POST /api/recipes/models`
 - `DELETE /api/recipes/models/:id`
+- `GET /api/recipes/source`
+- `PUT /api/recipes/source`
+- `POST /api/recipes/source/create`
 - `POST /api/benchy`
 - `GET /api/benchy/:id`
 - `POST /api/benchy/:id/cancel`
@@ -154,8 +173,13 @@ Intelligence plugin source:
 
 - `LLAMA_SWAP_RECIPES_BACKEND_DIR`: active backend root.
 - `LLAMA_SWAP_RECIPES_BACKEND_OVERRIDE_FILE`: file used to persist backend override.
+- `LLAMA_SWAP_RECIPES_DIR`: explicit recipes catalog directory (when set, searched first).
 - `LLAMA_SWAP_LOCAL_RECIPES_DIR`: extra local recipe directory.
 - `LLAMA_SWAP_CLUSTER_AUTODISCOVER_PATH`: override autodiscover script path.
+- `LLAMA_SWAP_HF_DOWNLOAD_SCRIPT`: override `hf-download.sh` path used by backend actions.
+- `LLAMA_SWAP_HF_HUB_PATH`: Hugging Face hub cache base path.
+- `LLAMA_SWAP_HF_HUB_PATH_OVERRIDE_FILE`: file used to persist HF hub path override.
+- `LLAMA_SWAP_CONFIG_PATH`: fallback config path if not started with `--config`.
 
 ### Benchy
 
@@ -164,10 +188,6 @@ Intelligence plugin source:
 - `LLAMA_BENCHY_OUTPUT_DIR`: default output directory.
 - `LLAMA_SWAP_BENCHY_PY_SHIM_DIR`: optional py shim dir.
 - `LLAMA_SWAP_SWEBENCH_TEXT_COMPAT`: SWE-bench text compatibility toggle.
-
-### Runtime
-
-- `LLAMA_SWAP_CONFIG_PATH`: fallback config path if not started with `--config`.
 
 ## Security Notes (This Fork)
 

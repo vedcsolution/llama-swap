@@ -51,6 +51,7 @@
   let selectedInferenceNodeByModel = $state<Record<string, string>>({});
   let nodeApplyBusyByModel = $state<Record<string, boolean>>({});
   let recipeDeleteBusyByModel = $state<Record<string, boolean>>({});
+  let recipeDeleteConfirmModelId = $state<string | null>(null);
   let addRecipeOpen = $state(false);
   let addRecipeBusy = $state(false);
   let addRecipeError: string | null = $state(null);
@@ -308,11 +309,13 @@
       bulkActionNotice = null;
       return;
     }
-
-    const ok = confirm(`Delete recipe/model ${modelID} from config.yaml?`);
-    if (!ok) {
+    if (recipeDeleteConfirmModelId !== modelID) {
+      recipeDeleteConfirmModelId = modelID;
+      bulkActionError = null;
+      bulkActionNotice = "Confirm delete: click Delete Recipe again for " + modelID + ".";
       return;
     }
+    recipeDeleteConfirmModelId = null;
 
     recipeDeleteBusyByModel = {
       ...recipeDeleteBusyByModel,
@@ -521,6 +524,11 @@ ${output}` : summary;
     recipeEditorSaving = false;
     recipeEditorError = null;
     recipeEditorNotice = null;
+    recipeEditorRef = "";
+    recipeEditorPath = "";
+    recipeEditorContent = "";
+    recipeEditorOriginal = "";
+    recipeEditorUpdatedAt = "";
 
     try {
       const state = await getRecipeSourceState(recipeRef, controller.signal);
@@ -1038,10 +1046,10 @@ ${output}` : summary;
                 <button
                   class="btn btn--sm"
                   onclick={() => handleDeleteRecipe(model)}
-                  disabled={!!recipeDeleteBusyByModel[model.id] || recipeEditorSaving}
+                  disabled={!!recipeDeleteBusyByModel[model.id] || (recipeEditorSaving && recipeEditorModelId === model.id)}
                   title="Delete managed recipe/model from config.yaml"
                 >
-                  {recipeDeleteBusyByModel[model.id] ? "Deleting..." : "Delete Recipe"}
+                  {recipeDeleteBusyByModel[model.id] ? "Deleting..." : (recipeDeleteConfirmModelId === model.id ? "Confirm Delete" : "Delete Recipe")}
                 </button>
               </div>
             </td>
@@ -1066,7 +1074,7 @@ ${output}` : summary;
                     </div>
                     <div class="flex gap-2">
                       <button class="btn btn--sm" onclick={refreshRecipeEditor} disabled={recipeEditorLoading || recipeEditorSaving}>Refresh</button>
-                      <button class="btn btn--sm" onclick={saveRecipeEditor} disabled={recipeEditorLoading || recipeEditorSaving || recipeEditorContent === recipeEditorOriginal}>
+                      <button class="btn btn--sm" onclick={saveRecipeEditor} disabled={recipeEditorLoading || recipeEditorSaving || !recipeEditorRef || recipeEditorContent === recipeEditorOriginal}>
                         {recipeEditorSaving ? "Saving..." : "Save"}
                       </button>
                       <button class="btn btn--sm" onclick={closeRecipeEditor} disabled={recipeEditorSaving}>Close</button>

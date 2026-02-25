@@ -25,14 +25,27 @@ const (
 )
 
 type clusterNodeStatus struct {
-	IP            string            `json:"ip"`
-	IsLocal       bool              `json:"isLocal"`
-	Port22Open    bool              `json:"port22Open"`
-	Port22Latency int64             `json:"port22LatencyMs,omitempty"`
-	SSHOK         bool              `json:"sshOk"`
-	SSHLatency    int64             `json:"sshLatencyMs,omitempty"`
-	Error         string            `json:"error,omitempty"`
-	DGX           *clusterDGXStatus `json:"dgx,omitempty"`
+	IP            string                `json:"ip"`
+	IsLocal       bool                  `json:"isLocal"`
+	Port22Open    bool                  `json:"port22Open"`
+	Port22Latency int64                 `json:"port22LatencyMs,omitempty"`
+	SSHOK         bool                  `json:"sshOk"`
+	SSHLatency    int64                 `json:"sshLatencyMs,omitempty"`
+	Error         string                `json:"error,omitempty"`
+	DGX           *clusterDGXStatus     `json:"dgx,omitempty"`
+	GPU           *clusterNodeGPUStatus `json:"gpu,omitempty"`
+}
+
+type clusterNodeGPUDevice struct {
+	Index    int `json:"index"`
+	TotalMiB int `json:"totalMiB"`
+	FreeMiB  int `json:"freeMiB"`
+}
+
+type clusterNodeGPUStatus struct {
+	QueriedAt string                 `json:"queriedAt"`
+	Devices   []clusterNodeGPUDevice `json:"devices,omitempty"`
+	Error     string                 `json:"error,omitempty"`
 }
 
 type clusterDGXStatus struct {
@@ -161,6 +174,7 @@ func (pm *ProxyManager) readClusterStatus(parentCtx context.Context) (clusterSta
 		}()
 	}
 	wg.Wait()
+	populateClusterGPUStatus(ctx, nodeStatuses)
 	populateClusterDGXStatus(ctx, nodeStatuses)
 
 	sort.Slice(nodeStatuses, func(i, j int) bool {
@@ -217,6 +231,79 @@ func (pm *ProxyManager) readClusterStatus(parentCtx context.Context) (clusterSta
 		Nodes:            nodeStatuses,
 		Storage:          storage,
 	}, nil
+}
+
+func populateClusterGPUStatus(parentCtx context.Context, nodes []clusterNodeStatus) {
+	var wg sync.WaitGroup
+	for idx := range nodes {
+		idx := idx
+		node := nodes[idx]
+		if !node.IsLocal && !node.SSHOK {
+			nodes[idx].GPU = &clusterNodeGPUStatus{
+				QueriedAt: time.Now().UTC().Format(time.RFC3339),
+				Error:     "ssh not available",
+			}
+			continue
+		}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			status := &clusterNodeGPUStatus{
+				QueriedAt: time.Now().UTC().Format(time.RFC3339),
+			}
+			devices, err := queryNodeGPUMemory(parentCtx, node.IP, node.IsLocal)
+			if err != nil {
+				status.Error = err.Error()
+			} else {
+				status.Devices = devices
+			}
+			nodes[idx].GPU = status
+		}()
+	}
+	wg.Wait()
+}
+
+func queryNodeGPUMemory(parentCtx context.Context, host string, isLocal bool) ([]clusterNodeGPUDevice, error) {
+	ctx, cancel := context.WithTimeout(parentCtx, 8*time.Second)
+	defer cancel()
+
+	output, err := runClusterNodeShell(ctx, host, isLocal, "nvidia-smi --query-gpu=memory.total,memory.free --format=csv,noheader,nounits")
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(output, "\n")
+	devices := make([]clusterNodeGPUDevice, 0, len(lines))
+	for idx, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, ",")
+		if len(parts) < 2 {
+			return nil, fmt.Errorf("unexpected nvidia-smi output: %q", line)
+		}
+		totalRaw := strings.TrimSpace(parts[0])
+		freeRaw := strings.TrimSpace(parts[1])
+		total, err := strconv.Atoi(totalRaw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GPU total memory: %s", totalRaw)
+		}
+		free, err := strconv.Atoi(freeRaw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid GPU free memory: %s", freeRaw)
+		}
+		devices = append(devices, clusterNodeGPUDevice{
+			Index:    idx,
+			TotalMiB: total,
+			FreeMiB:  free,
+		})
+	}
+	if len(devices) == 0 {
+		return nil, fmt.Errorf("no GPU memory data")
+	}
+	return devices, nil
 }
 
 func clusterAutodiscoverPath() string {

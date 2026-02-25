@@ -1,0 +1,35 @@
+recipe_version: "1"
+name: Intel/Qwen3-Coder-Next-int4-AutoRound
+description: vLLM serving Intel/Qwen3-Coder-Next-int4-AutoRound
+runtime: vllm
+backend: spark-vllm-docker
+
+model: Intel/Qwen3-Coder-Next-int4-AutoRound
+container: vllm-node:latest
+
+mods:
+  - mods/fix-qwen3-next-autoround
+
+defaults:
+  port: 8000
+  host: 0.0.0.0
+  tensor_parallel: 1
+  gpu_memory_utilization: 0.7
+  max_model_len: 131072
+
+env:
+  VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+
+command: |
+  vllm serve Intel/Qwen3-Coder-Next-int4-AutoRound \
+    --served-model-name Intel/Qwen3-Coder-Next-int4-AutoRound \
+    --enable-auto-tool-choice \
+    --tool-call-parser qwen3_coder \
+    --gpu-memory-utilization {gpu_memory_utilization} \
+    --max-model-len {max_model_len} \
+    --host {host} \
+    --port {port} \
+    --load-format fastsafetensors \
+    --enable-prefix-caching \
+    --distributed-executor-backend ray \
+    --tensor-parallel-size {tensor_parallel}

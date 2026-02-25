@@ -23,6 +23,7 @@
 
   let state: RecipeBackendState | null = null;
   let backendActionStatus: RecipeBackendActionStatus | null = null;
+  let actionStatusTimer: ReturnType<typeof setInterval> | null = null;
   let dockerImages: DockerImageInfo[] = [];
   let nodeImages: DockerNodeImagesState[] = [];
   let actionRunning = "";
@@ -34,11 +35,6 @@
   function buildAction(next: RecipeBackendState | null): RecipeBackendState["actions"][number] | null {
     if (!next) return null;
     return next.actions.find((info) => info.action === "build_llamacpp") || null;
-  }
-
-  function syncAction(next: RecipeBackendState | null): RecipeBackendState["actions"][number] | null {
-    if (!next) return null;
-    return next.actions.find((info) => info.action === "sync_llamacpp_image") || null;
   }
 
   function llamacppImageOptions(next: RecipeBackendState | null): string[] {
@@ -63,8 +59,29 @@
 
   function runningLabel(action: string): string {
     if (action === "build_llamacpp") return "Building and copying image...";
-    if (action === "sync_llamacpp_image") return "Syncing image on nodes...";
     return "Running...";
+  }
+
+  function isImagesBackendAction(status: RecipeBackendActionStatus | null): boolean {
+    const action = status?.action || "";
+    return action === "build_llamacpp";
+  }
+
+  function actionStateLabel(state?: string): string {
+    if (!state) return "idle";
+    return state.toLowerCase();
+  }
+
+  function actionStateClass(status: RecipeBackendActionStatus): string {
+    if (status.running) return "text-yellow-300";
+    if ((status.state || "").toLowerCase() === "success") return "text-green-300";
+    if ((status.state || "").toLowerCase() === "failed") return "text-error";
+    return "text-txtmain";
+  }
+
+  function formatDuration(durationMs?: number): string {
+    if (!durationMs || durationMs <= 0) return "0s";
+    return `${Math.round(durationMs / 1000)}s`;
   }
 
   function imageActionKey(action: "update" | "delete", nodeIp: string, image: DockerImageInfo): string {
@@ -107,7 +124,7 @@
       nodeImages = imagesState.nodes || [];
       discoveryError = imagesState.discoveryError || null;
       if (!selectedImage.trim()) {
-        selectedImage = backendState.llamacppImage?.selected || "";
+        selectedImage = backendState.llamacppImage?.selected || "llama-cpp-spark:last";
       }
       await refreshBackendActionStatus();
     } catch (e) {
@@ -118,46 +135,7 @@
     }
   }
 
-  async function syncImage(): Promise<void> {
-    const action = syncAction(state);
-    if (!action) {
-      error = "La acción de sync no está disponible para el backend actual.";
-      return;
-    }
-    if (actionRunning || imageActionRunning || isBackendActionRunning("sync_llamacpp_image")) return;
-
-    const sourceImage = selectedImage.trim();
-    if (!sourceImage) {
-      error = "Selecciona o escribe una imagen Docker.";
-      return;
-    }
-
-    actionRunning = "sync_llamacpp_image";
-    error = null;
-    notice = null;
-    actionCommand = "";
-    actionOutput = "";
-    try {
-      const result = await runRecipeBackendAction("sync_llamacpp_image", { sourceImage });
-      const successMessage = result.message || "Imagen sincronizada.";
-      actionCommand = result.command || "";
-      actionOutput = result.output || "";
-      await refresh();
-      notice = successMessage;
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-      await refreshBackendActionStatus();
-    } finally {
-      actionRunning = "";
-    }
-  }
-
   async function buildLlamaCpp(): Promise<void> {
-    const action = buildAction(state);
-    if (!action) {
-      error = "La acción de build no está disponible para el backend actual.";
-      return;
-    }
     if (actionRunning || imageActionRunning || isBackendActionRunning("build_llamacpp")) return;
 
     const sourceImage = selectedImage.trim();
@@ -171,9 +149,32 @@
     notice = null;
     actionCommand = "";
     actionOutput = "";
+    const startedAt = new Date().toISOString();
+    backendActionStatus = {
+      running: true,
+      action: "build_llamacpp",
+      state: "running",
+      startedAt,
+      updatedAt: startedAt,
+      command: buildAction(state)?.commandHint || "build_llamacpp",
+      output: "",
+      error: "",
+    };
     try {
       const result = await runRecipeBackendAction("build_llamacpp", { sourceImage });
       const successMessage = result.message || "Build y sincronización completados.";
+      backendActionStatus = {
+        running: false,
+        action: "build_llamacpp",
+        backendDir: result.backendDir,
+        command: result.command || backendActionStatus?.command,
+        state: "success",
+        startedAt: backendActionStatus?.startedAt || startedAt,
+        updatedAt: new Date().toISOString(),
+        durationMs: result.durationMs,
+        output: result.output || "",
+        error: "",
+      };
       actionCommand = result.command || "";
       actionOutput = result.output || "";
       await refresh();
@@ -244,6 +245,15 @@
 
   onMount(() => {
     void refresh();
+    actionStatusTimer = setInterval(() => {
+      void refreshBackendActionStatus();
+    }, 1500);
+    return () => {
+      if (actionStatusTimer) {
+        clearInterval(actionStatusTimer);
+        actionStatusTimer = null;
+      }
+    };
   });
 </script>
 
@@ -270,42 +280,62 @@
   </div>
 
   <div class="card shrink-0">
-    <div class="text-sm text-txtsecondary mb-2">Descargar y sincronizar imagen en nodos</div>
-
-    {#if syncAction(state)}
+    <div class="text-sm text-txtsecondary mb-2">Construir imagen llama.cpp y copiar en nodos</div>
       <div class="space-y-2">
+        {#if llamacppImageOptions(state).length > 0}
         <select class="w-full px-2 py-1 rounded border border-card-border bg-background font-mono text-sm" bind:value={selectedImage}>
           {#each llamacppImageOptions(state) as image}
             <option value={image}>{image}</option>
           {/each}
         </select>
+        {/if}
         <input class="input w-full font-mono text-sm" bind:value={selectedImage} placeholder="llama-cpp-spark:last" />
 
-        {#if buildAction(state)}
-          <button class="btn btn--sm" onclick={buildLlamaCpp} disabled={!!actionRunning || !!imageActionRunning || isBackendActionRunning()}>
-            {(actionRunning === "build_llamacpp" || isBackendActionRunning("build_llamacpp"))
-              ? runningLabel("build_llamacpp")
-              : (buildAction(state)?.label || "Build llama.cpp")}
-          </button>
-          <div class="text-xs text-txtsecondary break-all">
-            Build:
-            <span class="font-mono">{buildAction(state)?.commandHint || "build latest llama.cpp and copy image to autodiscovered nodes"}</span>
-          </div>
-        {/if}
-
-        <button class="btn btn--sm" onclick={syncImage} disabled={!!actionRunning || !!imageActionRunning || isBackendActionRunning()}>
-          {(actionRunning === "sync_llamacpp_image" || isBackendActionRunning("sync_llamacpp_image"))
-            ? runningLabel("sync_llamacpp_image")
-            : (syncAction(state)?.label || "Sync Image")}
+        <button class="btn btn--sm" onclick={buildLlamaCpp} disabled={!!actionRunning || !!imageActionRunning || isBackendActionRunning()}>
+          {(actionRunning === "build_llamacpp" || isBackendActionRunning("build_llamacpp"))
+            ? runningLabel("build_llamacpp")
+            : (buildAction(state)?.label || "Build llama.cpp")}
         </button>
         <div class="text-xs text-txtsecondary break-all">
-          Command:
-          <span class="font-mono">{syncAction(state)?.commandHint || "docker pull <selected> on autodiscovered nodes + persist as new default"}</span>
+          Build:
+          <span class="font-mono">{buildAction(state)?.commandHint || "POST /api/recipes/backend/action { action: build_llamacpp, sourceImage: <selected> }"}</span>
         </div>
+
       </div>
-    {:else}
-      <div class="text-xs text-txtsecondary">
-        La sincronización de imagen no está disponible para el backend actual.
+
+    {#if backendActionStatus && isImagesBackendAction(backendActionStatus)}
+      <div class="mt-2 p-2 border border-card-border rounded bg-background/60 space-y-1">
+        <div class="text-xs text-txtsecondary">
+          Estado:
+          <span class={`font-mono ${actionStateClass(backendActionStatus)}`}>{actionStateLabel(backendActionStatus.state)}</span>
+          {#if backendActionStatus.durationMs}
+            | duración: <span class="font-mono">{formatDuration(backendActionStatus.durationMs)}</span>
+          {/if}
+        </div>
+        <div class="text-xs text-txtsecondary">
+          Acción: <span class="font-mono">{backendActionStatus.action}</span>
+        </div>
+        {#if backendActionStatus.startedAt}
+          <div class="text-xs text-txtsecondary">
+            Inicio: <span class="font-mono">{backendActionStatus.startedAt}</span>
+          </div>
+        {/if}
+        {#if backendActionStatus.updatedAt}
+          <div class="text-xs text-txtsecondary">
+            Actualizado: <span class="font-mono">{backendActionStatus.updatedAt}</span>
+          </div>
+        {/if}
+        {#if backendActionStatus.command}
+          <div class="text-xs text-txtsecondary break-all">
+            Ejecución: <span class="font-mono">{backendActionStatus.command}</span>
+          </div>
+        {/if}
+        {#if backendActionStatus.error}
+          <div class="text-xs text-error break-all">Error: {backendActionStatus.error}</div>
+        {/if}
+        {#if backendActionStatus.output}
+          <pre class="text-xs font-mono whitespace-pre-wrap break-all p-2 border border-card-border rounded bg-background/70 max-h-40 overflow-auto">{backendActionStatus.output}</pre>
+        {/if}
       </div>
     {/if}
 
@@ -319,8 +349,9 @@
     {/if}
   </div>
 
-  <div class="card flex-1 min-h-0 overflow-auto">
+  <div class="card flex-1 min-h-0 flex flex-col">
     <div class="text-sm text-txtsecondary mb-2">Imágenes Docker por nodo</div>
+    <div class="flex-1 min-h-0 overflow-auto">
     {#if loading}
       <div class="text-xs text-txtsecondary">Leyendo imágenes Docker...</div>
     {:else if nodeImages.length === 0}
@@ -354,7 +385,7 @@
             {:else if node.images.length === 0}
               <div class="text-xs text-txtsecondary">No hay imágenes en este nodo.</div>
             {:else}
-              <div class="space-y-2 max-h-80 overflow-auto pr-1">
+              <div class="space-y-2 pr-1">
                 {#each node.images as image (node.nodeIp + image.id + image.reference)}
                   <div class="p-2 border border-card-border rounded bg-background/40">
                     <div class="text-sm font-mono text-txtmain break-all">{image.reference}</div>
@@ -386,5 +417,6 @@
         {/each}
       </div>
     {/if}
+    </div>
   </div>
 </div>
