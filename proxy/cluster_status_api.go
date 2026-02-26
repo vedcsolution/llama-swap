@@ -29,7 +29,10 @@ const (
 )
 
 type clusterNodeStatus struct {
+	ID            string                 `json:"id,omitempty"`
 	IP            string                 `json:"ip"`
+	ControlIP     string                 `json:"controlIp,omitempty"`
+	ProxyIP       string                 `json:"proxyIp,omitempty"`
 	IsLocal       bool                   `json:"isLocal"`
 	Port22Open    bool                   `json:"port22Open"`
 	Port22Latency int64                  `json:"port22LatencyMs,omitempty"`
@@ -422,6 +425,10 @@ func formatClusterDurationMs(d time.Duration) string {
 }
 
 func (pm *ProxyManager) readClusterStatus(parentCtx context.Context, opts clusterStatusLoadOptions) (clusterStatusState, clusterStatusTimings, error) {
+	if clusterExecModeIsAgent() {
+		return pm.readClusterStatusFromInventory(parentCtx, opts)
+	}
+
 	timings := clusterStatusTimings{}
 	totalStartedAt := time.Now()
 
@@ -594,6 +601,162 @@ func (pm *ProxyManager) readClusterStatus(parentCtx context.Context, opts cluste
 	}, timings, nil
 }
 
+func (pm *ProxyManager) readClusterStatusFromInventory(parentCtx context.Context, opts clusterStatusLoadOptions) (clusterStatusState, clusterStatusTimings, error) {
+	timings := clusterStatusTimings{}
+	totalStartedAt := time.Now()
+
+	routes, rdmaCfg, _, err := clusterInventoryRoutes()
+	if err != nil {
+		return clusterStatusState{}, timings, err
+	}
+
+	localIP := ""
+	if headRoute, headErr := clusterHeadRoute(""); headErr == nil {
+		localIP = strings.TrimSpace(headRoute.DataIP)
+	}
+	if localIP == "" && len(routes) > 0 {
+		localIP = strings.TrimSpace(routes[0].DataIP)
+	}
+
+	ctx, cancel := context.WithTimeout(parentCtx, clusterStatusReadTimeout)
+	defer cancel()
+
+	nodeStatuses := make([]clusterNodeStatus, len(routes))
+	probeStartedAt := time.Now()
+	var wg sync.WaitGroup
+	for idx := range routes {
+		idx := idx
+		route := routes[idx]
+
+		nodeStatuses[idx] = clusterNodeStatus{
+			ID:        route.ID,
+			IP:        route.DataIP,
+			ControlIP: route.ControlIP,
+			ProxyIP:   route.ProxyIP,
+			IsLocal:   route.Head || route.DataIP == localIP,
+		}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			agentOK, agentLatency, agentErr := probeAgent(ctx, route.DataIP, 8*time.Second)
+			nodeStatuses[idx].Port22Open = agentOK
+			nodeStatuses[idx].Port22Latency = agentLatency
+			nodeStatuses[idx].SSHOK = agentOK
+			nodeStatuses[idx].SSHLatency = agentLatency
+			if agentErr != nil {
+				nodeStatuses[idx].Error = "agent: " + agentErr.Error()
+			}
+		}()
+	}
+	wg.Wait()
+	timings.Probe = time.Since(probeStartedAt)
+
+	var storage *clusterStorageState
+	if opts.View == clusterStatusViewFull {
+		probeSnapshot := make([]clusterNodeStatus, len(nodeStatuses))
+		copy(probeSnapshot, nodeStatuses)
+		var heavyWG sync.WaitGroup
+		dgxStatuses := make([]*clusterDGXStatus, len(nodeStatuses))
+		if opts.Include.Metrics {
+			heavyWG.Add(1)
+			go func() {
+				defer heavyWG.Done()
+				metricsStartedAt := time.Now()
+				populateClusterCPUStatus(ctx, nodeStatuses)
+				populateClusterDiskStatus(ctx, nodeStatuses)
+				populateClusterGPUStatus(ctx, nodeStatuses)
+				timings.Metrics = time.Since(metricsStartedAt)
+			}()
+		}
+		if opts.Include.Storage {
+			heavyWG.Add(1)
+			go func() {
+				defer heavyWG.Done()
+				storageStartedAt := time.Now()
+				storage = buildClusterStorageState(ctx, probeSnapshot)
+				timings.Storage = time.Since(storageStartedAt)
+			}()
+		}
+		if opts.Include.DGX {
+			heavyWG.Add(1)
+			go func() {
+				defer heavyWG.Done()
+				dgxStartedAt := time.Now()
+				dgxCtx, dgxCancel := context.WithTimeout(ctx, dgxClusterReadTimeout)
+				dgxStatuses = populateClusterDGXStatus(dgxCtx, probeSnapshot)
+				dgxCancel()
+				timings.DGX = time.Since(dgxStartedAt)
+			}()
+		}
+		heavyWG.Wait()
+		if opts.Include.DGX {
+			for idx := range nodeStatuses {
+				nodeStatuses[idx].DGX = dgxStatuses[idx]
+			}
+		}
+	}
+
+	sort.Slice(nodeStatuses, func(i, j int) bool {
+		if nodeStatuses[i].IsLocal != nodeStatuses[j].IsLocal {
+			return nodeStatuses[i].IsLocal
+		}
+		return nodeStatuses[i].IP < nodeStatuses[j].IP
+	})
+
+	reachableBySSH := 0
+	remoteCount := 0
+	for _, n := range nodeStatuses {
+		if !n.IsLocal {
+			remoteCount++
+		}
+		if n.SSHOK {
+			reachableBySSH++
+		}
+	}
+
+	detectErrors := []string{}
+	overall := "healthy"
+	switch {
+	case len(nodeStatuses) == 0:
+		overall = "error"
+	case remoteCount == 0:
+		overall = "solo"
+	}
+
+	for _, n := range nodeStatuses {
+		if !n.IsLocal && !n.SSHOK {
+			overall = "degraded"
+			break
+		}
+	}
+
+	summary := buildClusterSummary(overall, len(nodeStatuses), remoteCount, reachableBySSH, detectErrors)
+	timings.Total = time.Since(totalStartedAt)
+
+	autodiscoverPath := clusterInventoryFilePath()
+	if autodiscoverPath == "" {
+		autodiscoverPath = "(inventory)"
+	}
+
+	return clusterStatusState{
+		AutodiscoverPath: autodiscoverPath,
+		DetectedAt:       time.Now().UTC().Format(time.RFC3339),
+		LocalIP:          localIP,
+		CIDR:             "",
+		EthIF:            strings.TrimSpace(rdmaCfg.EthIF),
+		IbIF:             strings.TrimSpace(rdmaCfg.IbIF),
+		NodeCount:        len(nodeStatuses),
+		RemoteCount:      remoteCount,
+		ReachableBySSH:   reachableBySSH,
+		Overall:          overall,
+		Summary:          summary,
+		Errors:           detectErrors,
+		Nodes:            nodeStatuses,
+		Storage:          storage,
+	}, timings, nil
+}
+
 func populateClusterCPUStatus(parentCtx context.Context, nodes []clusterNodeStatus) {
 	var wg sync.WaitGroup
 	for idx := range nodes {
@@ -604,7 +767,7 @@ func populateClusterCPUStatus(parentCtx context.Context, nodes []clusterNodeStat
 		}
 		nodes[idx].CPU = status
 		if !node.IsLocal && !node.SSHOK {
-			status.Error = "ssh not available"
+			status.Error = "node not reachable"
 			continue
 		}
 
@@ -677,7 +840,7 @@ func populateClusterDiskStatus(parentCtx context.Context, nodes []clusterNodeSta
 		}
 		nodes[idx].Disk = status
 		if !node.IsLocal && !node.SSHOK {
-			status.Error = "ssh not available"
+			status.Error = "node not reachable"
 			continue
 		}
 
@@ -762,7 +925,7 @@ func populateClusterGPUStatus(parentCtx context.Context, nodes []clusterNodeStat
 		}
 		nodes[idx].GPU = status
 		if !node.IsLocal && !node.SSHOK {
-			status.Error = "ssh not available"
+			status.Error = "node not reachable"
 			continue
 		}
 
@@ -1061,6 +1224,10 @@ func probePort22(host string, timeout time.Duration) (ok bool, latencyMs int64, 
 }
 
 func probeSSH(parent context.Context, host string, timeout time.Duration) (ok bool, latencyMs int64, err error) {
+	if clusterExecModeIsAgent() {
+		return probeAgent(parent, host, timeout)
+	}
+
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
@@ -1097,6 +1264,22 @@ func probeSSH(parent context.Context, host string, timeout time.Duration) (ok bo
 }
 
 func buildClusterSummary(overall string, nodeCount, remoteCount, reachableBySSH int, detectErrors []string) string {
+	if clusterExecModeIsAgent() {
+		switch overall {
+		case "solo":
+			return fmt.Sprintf("Modo solo: %d nodo principal detectado.", nodeCount)
+		case "healthy":
+			return fmt.Sprintf("Cluster OK: %d/%d nodos con agent operativo.", reachableBySSH, nodeCount)
+		case "degraded":
+			if len(detectErrors) > 0 {
+				return fmt.Sprintf("Cluster degradado: %d aviso(s) de inventario y %d/%d nodos con agent operativo.", len(detectErrors), reachableBySSH, nodeCount)
+			}
+			return fmt.Sprintf("Cluster degradado: %d nodo(s) remoto(s), agent operativo en %d/%d nodos.", remoteCount, reachableBySSH, nodeCount)
+		default:
+			return "No se pudo determinar el estado del cluster."
+		}
+	}
+
 	switch overall {
 	case "solo":
 		return fmt.Sprintf("Modo solo: %d nodo local detectado.", nodeCount)
@@ -1149,7 +1332,7 @@ func buildClusterStorageState(parentCtx context.Context, nodes []clusterNodeStat
 				for _, path := range paths {
 					entry.Paths = append(entry.Paths, clusterStoragePathPresence{
 						Path:  path,
-						Error: "ssh unavailable",
+						Error: "node unavailable",
 					})
 				}
 				storageNodes[idx] = entry

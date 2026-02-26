@@ -96,6 +96,10 @@ When saving from Recipe Manager, this fork also ensures macros required for port
 
 - Per-model load/unload from `Models` page.
 - `Stop Cluster` triggers immediate local unload + backend `launch-cluster.sh stop`.
+- For control-plane-only deployments (no local inference), enable agent mode:
+  - set `LLAMA_SWAP_CLUSTER_EXEC_MODE=agent`
+  - run `llama-swap-agent` on each node
+  - use `cluster-inventory.yaml` (see `docs/agent-cluster.md`)
 
 ## UI Sections
 
@@ -176,6 +180,16 @@ Intelligence plugin source:
 - `LLAMA_SWAP_RECIPES_DIR`: explicit recipes catalog directory (when set, searched first).
 - `LLAMA_SWAP_LOCAL_RECIPES_DIR`: extra local recipe directory.
 - `LLAMA_SWAP_CLUSTER_AUTODISCOVER_PATH`: override autodiscover script path.
+- `LLAMA_SWAP_CLUSTER_EXEC_MODE`: execution mode (`local` default, `agent` for agent-managed nodes).
+- `LLAMA_SWAP_CLUSTER_INVENTORY_FILE`: optional explicit inventory path (auto-detects `cluster-inventory.yaml`).
+- `LLAMA_SWAP_CLUSTER_HEAD_NODE`: optional head node override (id/data/control/proxy IP).
+- `LLAMA_SWAP_CLUSTER_DEFAULT_SSH_USER`: default ssh user used in inventory normalization.
+- `LLAMA_SWAP_CLUSTER_AGENT_REMOTE_ROOT`: remote repo root used by agent mode recipe commands (default `$HOME/swap-laboratories`).
+- `LLAMA_SWAP_AGENT_DEFAULT_PORT`: default agent port (default `19090`).
+- `LLAMA_SWAP_AGENT_TOKEN_FILE`: optional bearer token file for control-host -> agent auth.
+- `LLAMA_SWAP_CLUSTER_RDMA_REQUIRED`: cluster RDMA requirement flag (`1/true`).
+- `LLAMA_SWAP_CLUSTER_RDMA_ETH_IF`: required ETH interface name.
+- `LLAMA_SWAP_CLUSTER_RDMA_IB_IF`: required IB interface list (comma separated).
 - `LLAMA_SWAP_HF_DOWNLOAD_SCRIPT`: override `hf-download.sh` path used by backend actions.
 - `LLAMA_SWAP_HF_HUB_PATH`: Hugging Face hub cache base path.
 - `LLAMA_SWAP_HF_HUB_PATH_OVERRIDE_FILE`: file used to persist HF hub path override.

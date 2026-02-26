@@ -29,6 +29,7 @@ const (
 	recipesBackendDirEnv            = "LLAMA_SWAP_RECIPES_BACKEND_DIR"
 	recipesCatalogDirEnv            = "LLAMA_SWAP_RECIPES_DIR"
 	recipesBackendOverrideFileEnv   = "LLAMA_SWAP_RECIPES_BACKEND_OVERRIDE_FILE"
+	clusterAgentRemoteRootEnv       = "LLAMA_SWAP_CLUSTER_AGENT_REMOTE_ROOT"
 	hfDownloadScriptPathEnv         = "LLAMA_SWAP_HF_DOWNLOAD_SCRIPT"
 	hfHubPathOverrideFileEnv        = "LLAMA_SWAP_HF_HUB_PATH_OVERRIDE_FILE"
 	hfHubPathEnv                    = "LLAMA_SWAP_HF_HUB_PATH"
@@ -39,6 +40,7 @@ const (
 	defaultRecipesBackendSubdir     = "swap-laboratories/backend/spark-vllm-docker"
 	defaultRecipesCatalogSubdir     = "recipes"
 	defaultRecipesLocalSubdir       = "llama-swap/recipes"
+	defaultClusterAgentRemoteRoot   = "$HOME/swap-laboratories"
 	defaultRecipeGroupName          = "managed-recipes"
 	defaultTRTLLMImageTag           = "trtllm-node"
 	defaultTRTLLMSourceImage        = "nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc3"
@@ -1215,7 +1217,23 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 	backendKind := detectRecipeBackendKind(recipeBackendDir)
 	recipePath := strings.TrimSpace(catalogRecipe.Path)
 
+	agentMode := clusterExecModeIsAgent()
+	agentHeadRoute := clusterNodeRoute{}
 	requestedNodes := strings.TrimSpace(req.Nodes)
+	if agentMode {
+		headRoute, headErr := clusterHeadRoute("")
+		if headErr != nil {
+			return RecipeUIState{}, fmt.Errorf("agent mode requires cluster head route: %w", headErr)
+		}
+		agentHeadRoute = headRoute
+		if requestedNodes != "" && !strings.Contains(requestedNodes, "${") {
+			normalizedNodes, normErr := normalizeAgentNodesList(requestedNodes)
+			if normErr != nil {
+				return RecipeUIState{}, normErr
+			}
+			requestedNodes = normalizedNodes
+		}
+	}
 	requestedNodeList := splitAndNormalizeNodes(requestedNodes)
 
 	mode := strings.ToLower(strings.TrimSpace(req.Mode))
@@ -1271,6 +1289,13 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 	if singleNodeSelection == "" && autoNodeSelection != "" {
 		singleNodeSelection = autoNodeSelection
 	}
+	if agentMode && singleNodeSelection != "" {
+		normalizedSingle, normErr := normalizeAgentNodesList(singleNodeSelection)
+		if normErr != nil {
+			return RecipeUIState{}, normErr
+		}
+		singleNodeSelection = normalizedSingle
+	}
 
 	// For TP=1 with an explicit node, run that model on the selected node directly.
 	if singleNodeSelection != "" {
@@ -1294,11 +1319,26 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 		nodes = singleNodeSelection
 	}
 	if mode == "cluster" && nodes == "" {
-		if expr, ok := backendMacroExprForKind(root, backendKind, "nodes"); ok {
-			nodes = expr
+		if agentMode {
+			resolvedNodes, resolveErr := clusterInventoryNodesCSV()
+			if resolveErr != nil {
+				return RecipeUIState{}, resolveErr
+			}
+			nodes = resolvedNodes
 		} else {
-			return RecipeUIState{}, errors.New("nodes is required for cluster mode (backend nodes macro not found)")
+			if expr, ok := backendMacroExprForKind(root, backendKind, "nodes"); ok {
+				nodes = expr
+			} else {
+				return RecipeUIState{}, errors.New("nodes is required for cluster mode (backend nodes macro not found)")
+			}
 		}
+	}
+	if agentMode && mode == "cluster" && nodes != "" && !strings.Contains(nodes, "${") {
+		normalizedNodes, normErr := normalizeAgentNodesList(nodes)
+		if normErr != nil {
+			return RecipeUIState{}, normErr
+		}
+		nodes = normalizedNodes
 	}
 
 	groupName := strings.TrimSpace(req.Group)
@@ -1333,6 +1373,19 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 	proxyTarget := "http://127.0.0.1:${PORT}"
 	if singleNodeSelection != "" {
 		proxyTarget = fmt.Sprintf("http://%s:${PORT}", singleNodeSelection)
+		if agentMode {
+			if route, found, routeErr := clusterFindRoute(singleNodeSelection); routeErr == nil && found && strings.TrimSpace(route.ProxyIP) != "" {
+				proxyTarget = fmt.Sprintf("http://%s:${PORT}", strings.TrimSpace(route.ProxyIP))
+			}
+		}
+	} else if agentMode {
+		proxyHost := strings.TrimSpace(agentHeadRoute.ProxyIP)
+		if proxyHost == "" {
+			proxyHost = strings.TrimSpace(agentHeadRoute.DataIP)
+		}
+		if proxyHost != "" {
+			proxyTarget = fmt.Sprintf("http://%s:${PORT}", proxyHost)
+		}
 	}
 	modelEntry["proxy"] = proxyTarget
 	modelEntry["checkEndpoint"] = "/health"
@@ -1411,7 +1464,13 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 	if hotSwap {
 		stopPrefix = hotSwapStopExpr + "; "
 	}
+	agentTargetHost := strings.TrimSpace(agentHeadRoute.DataIP)
 	if singleNodeSelection != "" {
+		agentTargetHost = singleNodeSelection
+	}
+	if agentMode {
+		cmdStopExpr = buildAgentShellExecCommand(agentTargetHost, cmdStopExpr)
+	} else if singleNodeSelection != "" {
 		remoteStopInner := "bash -lc " + strconv.Quote(cmdStopExpr)
 		cmdStopExpr = fmt.Sprintf(
 			"exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no %s %s",
@@ -1421,19 +1480,23 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 	}
 
 	runner := ""
-	if hasMacro(root, "recipe_runner") {
-		runner = "${recipe_runner}"
-	}
-	if runner == "" {
-		configRunner := filepath.Join(filepath.Dir(configPath), "run-recipe.sh")
-		if isExecutableFile(configRunner) {
-			runner = configRunner
+	if agentMode {
+		runner = "$AGENT_REPO_ROOT/run-recipe.sh"
+	} else {
+		if hasMacro(root, "recipe_runner") {
+			runner = "${recipe_runner}"
 		}
-	}
-	if runner == "" {
-		backendRunner := filepath.Join(recipeBackendDir, "run-recipe.sh")
-		if isExecutableFile(backendRunner) {
-			runner = backendRunner
+		if runner == "" {
+			configRunner := filepath.Join(filepath.Dir(configPath), "run-recipe.sh")
+			if isExecutableFile(configRunner) {
+				runner = configRunner
+			}
+		}
+		if runner == "" {
+			backendRunner := filepath.Join(recipeBackendDir, "run-recipe.sh")
+			if isExecutableFile(backendRunner) {
+				runner = backendRunner
+			}
 		}
 	}
 	if strings.TrimSpace(runner) == "" {
@@ -1445,6 +1508,9 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 		ensureRemoteBackend := buildRemoteBackendEnsureExpr(singleNodeSelection, recipeBackendDir)
 
 		var remoteCmdParts []string
+		if agentMode {
+			remoteCmdParts = append(remoteCmdParts, buildAgentRecipeEnsurePrefix(), "\n")
+		}
 		if runtimeCachePolicyInCommand {
 			remoteCmdParts = append(remoteCmdParts, runtimeCachePolicyAssignment, " ")
 		}
@@ -1458,50 +1524,70 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 			remoteCmdParts = append(remoteCmdParts, " ", quoteForCommand(resolvedExtraArgs))
 		}
 		remoteInner := strings.Join(remoteCmdParts, "")
-		remoteOuter := "bash -lc " + strconv.Quote(remoteInner)
-		cmd = fmt.Sprintf(
-			"bash -lc '%sexec ssh -o BatchMode=yes -o StrictHostKeyChecking=no %s %s'",
-			ensureRemoteBackend,
-			quoteForCommand(singleNodeSelection),
-			strconv.Quote(remoteOuter),
-		)
+		if agentMode {
+			cmd = buildAgentShellExecCommand(singleNodeSelection, remoteInner)
+		} else {
+			remoteOuter := "bash -lc " + strconv.Quote(remoteInner)
+			cmd = fmt.Sprintf(
+				"bash -lc '%sexec ssh -o BatchMode=yes -o StrictHostKeyChecking=no %s %s'",
+				ensureRemoteBackend,
+				quoteForCommand(singleNodeSelection),
+				strconv.Quote(remoteOuter),
+			)
+		}
 	} else if hotSwap {
 		renderedVLLMCmd, err := buildHotSwapVLLMCommand(catalogRecipe.Path, tp, resolvedExtraArgs)
 		if err != nil {
 			return RecipeUIState{}, err
 		}
-		cmd = fmt.Sprintf(
-			"bash -lc '%s; if [ -z \"${VLLM_CONTAINER:-}\" ]; then VLLM_CONTAINER=\"$(%s)\"; fi; if [ -z \"$VLLM_CONTAINER\" ]; then echo \"No running vLLM container found\" >&2; exit 1; fi; exec docker exec -i \"$VLLM_CONTAINER\" bash -i -c %s'",
+		hotSwapCmd := fmt.Sprintf(
+			"%s; if [ -z \"${VLLM_CONTAINER:-}\" ]; then VLLM_CONTAINER=\"$(%s)\"; fi; if [ -z \"$VLLM_CONTAINER\" ]; then echo \"No running vLLM container found\" >&2; exit 1; fi; exec docker exec -i \"$VLLM_CONTAINER\" bash -i -c %s",
 			hotSwapStopExpr,
 			buildVLLMContainerDetectExpr(containerImageToStore),
 			strconv.Quote(renderedVLLMCmd),
 		)
-	} else {
-		var cmdParts []string
-		cmdParts = append(cmdParts, "bash -lc '", clusterResetPrefix, stopPrefix)
-		if runtimeCachePolicyInCommand {
-			cmdParts = append(cmdParts, runtimeCachePolicyAssignment, " ")
-		}
-		cmdParts = append(cmdParts, "exec ", runner, " ", quoteForCommand(resolvedRecipeRef))
-		if mode == "solo" {
-			cmdParts = append(cmdParts, " --solo")
+		if agentMode {
+			cmd = buildAgentShellExecCommand(agentTargetHost, hotSwapCmd)
 		} else {
-			cmdParts = append(cmdParts, " -n ", quoteForCommand(nodes))
+			cmd = fmt.Sprintf("bash -lc '%s'", hotSwapCmd)
+		}
+	} else {
+		var innerParts []string
+		if agentMode {
+			innerParts = append(innerParts, buildAgentRecipeEnsurePrefix(), "\n")
+		}
+		innerParts = append(innerParts, clusterResetPrefix, stopPrefix)
+		if runtimeCachePolicyInCommand {
+			innerParts = append(innerParts, runtimeCachePolicyAssignment, " ")
+		}
+		innerParts = append(innerParts, "exec ", runner, " ", quoteForCommand(resolvedRecipeRef))
+		if mode == "solo" {
+			innerParts = append(innerParts, " --solo")
+		} else {
+			innerParts = append(innerParts, " -n ", quoteForCommand(nodes))
 		}
 		if tp > 0 {
-			cmdParts = append(cmdParts, " --tp ", strconv.Itoa(tp))
+			innerParts = append(innerParts, " --tp ", strconv.Itoa(tp))
 		}
-		cmdParts = append(cmdParts, " --port ${PORT}")
-		cmdParts = appendNonPrivilegedRecipeArgs(cmdParts, req)
+		innerParts = append(innerParts, " --port ${PORT}")
+		innerParts = appendNonPrivilegedRecipeArgs(innerParts, req)
 		if resolvedExtraArgs != "" {
-			cmdParts = append(cmdParts, " ", quoteForCommand(resolvedExtraArgs))
+			innerParts = append(innerParts, " ", quoteForCommand(resolvedExtraArgs))
 		}
-		cmdParts = append(cmdParts, "'")
-		cmd = strings.Join(cmdParts, "")
+		inner := strings.Join(innerParts, "")
+		if agentMode {
+			cmd = buildAgentShellExecCommand(agentTargetHost, inner)
+		} else {
+			cmd = fmt.Sprintf("bash -lc '%s'", inner)
+		}
 	}
 
 	modelEntry["cmd"] = cmd
-	modelEntry["cmdStop"] = fmt.Sprintf("bash -lc '%s'", cmdStopExpr)
+	if agentMode {
+		modelEntry["cmdStop"] = cmdStopExpr
+	} else {
+		modelEntry["cmdStop"] = fmt.Sprintf("bash -lc '%s'", cmdStopExpr)
+	}
 
 	meta := getMap(existing, "metadata")
 	if len(meta) == 0 {
@@ -4602,6 +4688,75 @@ func quoteForCommand(s string) string {
 		return strconv.Quote(s)
 	}
 	return s
+}
+
+func buildAgentRecipeEnsurePrefix() string {
+	return strings.Join([]string{
+		fmt.Sprintf("AGENT_REPO_ROOT=\"${%s:-%s}\"", clusterAgentRemoteRootEnv, defaultClusterAgentRemoteRoot),
+		"if [ ! -x \"$AGENT_REPO_ROOT/run-recipe.sh\" ]; then",
+		"  echo \"run-recipe.sh not found or not executable under $AGENT_REPO_ROOT\" >&2",
+		"  exit 1",
+		"fi",
+	}, "\n")
+}
+
+func buildAgentShellExecCommand(targetHost, script string) string {
+	targetHost = strings.TrimSpace(targetHost)
+	script = strings.TrimSpace(script)
+	if targetHost == "" {
+		return "bash -lc " + strconv.Quote("echo 'agent target host is empty' >&2; exit 1")
+	}
+
+	body := strings.Join([]string{
+		"set -euo pipefail",
+		fmt.Sprintf("AGENT_HOST=%s", shellQuote(targetHost)),
+		fmt.Sprintf("AGENT_PORT=\"${%s:-%d}\"", clusterAgentDefaultPortEnv, clusterAgentDefaultPort),
+		fmt.Sprintf("AGENT_URL=\"http://${AGENT_HOST}:${AGENT_PORT}%s\"", clusterAgentShellPath),
+		fmt.Sprintf("REMOTE_SCRIPT=%s", shellQuote(script)),
+		"SCRIPT_B64=\"$(printf '%s' \"$REMOTE_SCRIPT\" | base64 | tr -d '\\n')\"",
+		"JSON_PAYLOAD=\"$(printf '{\"scriptBase64\":\"%s\"}' \"$SCRIPT_B64\")\"",
+		fmt.Sprintf("AGENT_TOKEN_FILE=\"${%s:-}\"", clusterAgentTokenFileEnv),
+		"AGENT_TOKEN=\"\"",
+		"if [ -n \"$AGENT_TOKEN_FILE\" ] && [ -r \"$AGENT_TOKEN_FILE\" ]; then",
+		"  AGENT_TOKEN=\"$(tr -d ' \\t\\r\\n' < \"$AGENT_TOKEN_FILE\")\"",
+		"fi",
+		"if [ -n \"$AGENT_TOKEN\" ]; then",
+		"  exec curl -fsS --connect-timeout 8 -H \"Content-Type: application/json\" -H \"Authorization: Bearer $AGENT_TOKEN\" --data \"$JSON_PAYLOAD\" \"$AGENT_URL\"",
+		"fi",
+		"exec curl -fsS --connect-timeout 8 -H \"Content-Type: application/json\" --data \"$JSON_PAYLOAD\" \"$AGENT_URL\"",
+	}, "\n")
+	return "bash -lc " + strconv.Quote(body)
+}
+
+func normalizeAgentNodesList(raw string) (string, error) {
+	nodes := splitAndNormalizeNodes(raw)
+	if len(nodes) == 0 {
+		return "", nil
+	}
+	normalized := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		route, found, err := clusterFindRoute(node)
+		if err != nil {
+			return "", err
+		}
+		if !found {
+			return "", fmt.Errorf("node not found in inventory: %s", node)
+		}
+		normalized = append(normalized, route.DataIP)
+	}
+	return strings.Join(uniqueNonEmptyStrings(normalized), ","), nil
+}
+
+func clusterInventoryNodesCSV() (string, error) {
+	routes, _, _, err := clusterInventoryRoutes()
+	if err != nil {
+		return "", err
+	}
+	nodes := make([]string, 0, len(routes))
+	for _, route := range routes {
+		nodes = append(nodes, route.DataIP)
+	}
+	return strings.Join(uniqueNonEmptyStrings(nodes), ","), nil
 }
 
 func buildRemoteBackendEnsureExpr(node, backendDir string) string {

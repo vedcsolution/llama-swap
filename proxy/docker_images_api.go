@@ -104,6 +104,17 @@ func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 55*time.Second)
 	defer cancel()
 
+	if clusterExecModeIsAgent() {
+		resp, err := listDockerImagesFromInventory(ctx)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		storeDockerImagesCache(resp, now)
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+
 	type localFetchResult struct {
 		images []dockerImageInfo
 		err    error
@@ -228,6 +239,47 @@ func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+func listDockerImagesFromInventory(parent context.Context) (dockerImagesResponse, error) {
+	routes, _, _, err := clusterInventoryRoutes()
+	if err != nil {
+		return dockerImagesResponse{}, err
+	}
+	if len(routes) == 0 {
+		return dockerImagesResponse{}, fmt.Errorf("inventory has no nodes")
+	}
+
+	results := make([]dockerNodeImages, len(routes))
+	var wg sync.WaitGroup
+	for idx := range routes {
+		idx := idx
+		route := routes[idx]
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result := dockerNodeImages{
+				NodeIP:  route.DataIP,
+				IsLocal: route.Head,
+			}
+			images, nodeErr := dockerImagesForNode(parent, route.DataIP, false, 20*time.Second)
+			if nodeErr != nil {
+				result.Error = nodeErr.Error()
+			} else {
+				result.Images = images
+			}
+			results[idx] = result
+		}()
+	}
+	wg.Wait()
+
+	results = compactDockerNodeImages(results)
+	sortDockerNodeImages(results)
+	return dockerImagesResponse{
+		Images: pickPrimaryDockerImages(results, nil),
+		Nodes:  results,
+	}, nil
+}
+
 func (pm *ProxyManager) apiUpdateDockerImage(c *gin.Context) {
 	req, ok := parseDockerImageActionRequest(c)
 	if !ok {
@@ -342,6 +394,24 @@ func parseDockerImageActionRequest(c *gin.Context) (dockerImageActionRequest, bo
 
 func resolveDockerActionNode(parent context.Context, requested string) (host string, isLocal bool, err error) {
 	requested = strings.TrimSpace(requested)
+	if clusterExecModeIsAgent() {
+		headRoute, headErr := clusterHeadRoute("")
+		if headErr != nil {
+			return "", false, headErr
+		}
+		if requested == "" || strings.EqualFold(requested, "local") || strings.EqualFold(requested, "localhost") || requested == "127.0.0.1" {
+			return headRoute.DataIP, true, nil
+		}
+		route, found, routeErr := clusterFindRoute(requested)
+		if routeErr != nil {
+			return "", false, routeErr
+		}
+		if !found {
+			return "", false, fmt.Errorf("node not found in inventory: %s", requested)
+		}
+		return route.DataIP, route.Head, nil
+	}
+
 	if requested == "" || strings.EqualFold(requested, "local") || strings.EqualFold(requested, "localhost") {
 		return "127.0.0.1", true, nil
 	}
@@ -448,6 +518,22 @@ func pickLocalDockerImages(nodes []dockerNodeImages, fallback []dockerImageInfo)
 		if !node.IsLocal {
 			continue
 		}
+		if strings.TrimSpace(node.Error) != "" {
+			continue
+		}
+		if node.Images == nil {
+			return []dockerImageInfo{}
+		}
+		return node.Images
+	}
+	return fallback
+}
+
+func pickPrimaryDockerImages(nodes []dockerNodeImages, fallback []dockerImageInfo) []dockerImageInfo {
+	if picked := pickLocalDockerImages(nodes, nil); picked != nil {
+		return picked
+	}
+	for _, node := range nodes {
 		if strings.TrimSpace(node.Error) != "" {
 			continue
 		}

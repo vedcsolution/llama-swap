@@ -161,7 +161,7 @@ func populateClusterDGXStatus(parentCtx context.Context, nodes []clusterNodeStat
 			statuses[idx] = &clusterDGXStatus{
 				Supported: false,
 				CheckedAt: time.Now().UTC().Format(time.RFC3339),
-				Error:     "ssh not available",
+				Error:     "node not reachable",
 			}
 			continue
 		}
@@ -244,6 +244,24 @@ func callNodeDGXDBusMethod(parentCtx context.Context, host string, isLocal bool,
 }
 
 func runClusterNodeShell(ctx context.Context, host string, isLocal bool, script string) (string, error) {
+	host = strings.TrimSpace(host)
+	if clusterExecModeIsAgent() {
+		route, found, routeErr := clusterFindRoute(host)
+		if routeErr != nil {
+			return "", routeErr
+		}
+		if found {
+			_, _, defaultPort, invErr := clusterInventoryRoutes()
+			if invErr != nil {
+				return "", invErr
+			}
+			return runClusterNodeAgentShell(ctx, route, defaultPort, script)
+		}
+		if !isLocal {
+			return "", fmt.Errorf("target not found in cluster inventory: %s", host)
+		}
+	}
+
 	var cmd *exec.Cmd
 	if isLocal {
 		cmd = exec.CommandContext(ctx, "bash", "-lc", script)
@@ -284,6 +302,25 @@ func runClusterNodeShell(ctx context.Context, host string, isLocal bool, script 
 }
 
 func discoverClusterNodeIPs(parentCtx context.Context) ([]string, string, error) {
+	if clusterExecModeIsAgent() {
+		routes, _, _, err := clusterInventoryRoutes()
+		if err != nil {
+			return nil, "", err
+		}
+		nodes := make([]string, 0, len(routes))
+		for _, route := range routes {
+			nodes = append(nodes, route.DataIP)
+		}
+		localIP := ""
+		if headRoute, headErr := clusterHeadRoute(""); headErr == nil {
+			localIP = strings.TrimSpace(headRoute.DataIP)
+		}
+		if localIP == "" && len(nodes) > 0 {
+			localIP = strings.TrimSpace(nodes[0])
+		}
+		return uniqueNonEmptyStrings(nodes), localIP, nil
+	}
+
 	autodiscoverPath := clusterAutodiscoverPath()
 	values, detectErrors := runAutodiscoverSnapshot(parentCtx, autodiscoverPath)
 	localIP := strings.TrimSpace(values["LOCAL_IP"])
@@ -307,6 +344,14 @@ func discoverClusterNodeIPs(parentCtx context.Context) ([]string, string, error)
 }
 
 func discoverLocalIPAndCIDR(parentCtx context.Context) (string, *net.IPNet, error) {
+	if clusterExecModeIsAgent() {
+		headRoute, err := clusterHeadRoute("")
+		if err != nil {
+			return "", nil, err
+		}
+		return strings.TrimSpace(headRoute.DataIP), nil, nil
+	}
+
 	autodiscoverPath := clusterAutodiscoverPath()
 	values, detectErrors := runAutodiscoverLocalSnapshot(parentCtx, autodiscoverPath)
 	localIP := strings.TrimSpace(values["LOCAL_IP"])
@@ -378,6 +423,12 @@ func isTargetAllowedInCluster(target, localIP string, network *net.IPNet) bool {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return false
+	}
+	if clusterExecModeIsAgent() {
+		if target == localIP || target == "127.0.0.1" || target == "localhost" {
+			return true
+		}
+		return clusterInventoryContainsTarget(target)
 	}
 	if target == localIP || target == "127.0.0.1" || target == "localhost" {
 		return true
