@@ -1,32 +1,33 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import type { ComponentType } from "svelte";
   import Router from "svelte-spa-router";
+  import wrap from "svelte-spa-router/wrap";
   import Header from "./components/Header.svelte";
-  import LogViewer from "./routes/LogViewer.svelte";
-  import Models from "./routes/Models.svelte";
-  import HFModels from "./routes/HFModels.svelte";
-  import Images from "./routes/Images.svelte";
-  import Activity from "./routes/Activity.svelte";
-  import ConfigEditor from "./routes/ConfigEditor.svelte";
-  import ClusterStatus from "./routes/ClusterStatus.svelte";
-  import Help from "./routes/Help.svelte";
-  import Playground from "./routes/Playground.svelte";
-  import PlaygroundStub from "./routes/PlaygroundStub.svelte";
   import { enableAPIEvents } from "./stores/api";
   import { initScreenWidth, isDarkMode, appTitle, connectionState } from "./stores/theme";
   import { currentRoute } from "./stores/route";
 
+  function lazyRoute(loader: () => Promise<{ default: unknown }>) {
+    return wrap({
+      asyncComponent: async () => {
+        const mod = await loader();
+        return { default: mod.default as ComponentType };
+      },
+    });
+  }
+
   const routes = {
-    "/": PlaygroundStub,
-    "/models": Models,
-    "/hf-models": HFModels,
-    "/images": Images,
-    "/logs": LogViewer,
-    "/cluster": ClusterStatus,
-    "/editor": ConfigEditor,
-    "/credit": Help,
-    "/activity": Activity,
-    "*": PlaygroundStub,
+    "/": lazyRoute(() => import("./routes/Playground.svelte")),
+    "/models": lazyRoute(() => import("./routes/Models.svelte")),
+    "/hf-models": lazyRoute(() => import("./routes/HFModels.svelte")),
+    "/images": lazyRoute(() => import("./routes/Images.svelte")),
+    "/logs": lazyRoute(() => import("./routes/LogViewer.svelte")),
+    "/cluster": lazyRoute(() => import("./routes/ClusterStatus.svelte")),
+    "/editor": lazyRoute(() => import("./routes/ConfigEditor.svelte")),
+    "/credit": lazyRoute(() => import("./routes/Help.svelte")),
+    "/activity": lazyRoute(() => import("./routes/Activity.svelte")),
+    "*": lazyRoute(() => import("./routes/Playground.svelte")),
   };
 
   function handleRouteLoaded(event: { detail: { route: string | RegExp } }) {
@@ -58,10 +59,7 @@
   <Header />
 
   <main class="flex-1 overflow-auto p-4">
-    <div class="h-full" class:hidden={$currentRoute !== "/"}>
-      <Playground />
-    </div>
-    <div class="h-full" class:hidden={$currentRoute === "/"}>
+    <div class="h-full">
       <Router {routes} on:routeLoaded={handleRouteLoaded} />
     </div>
   </main>

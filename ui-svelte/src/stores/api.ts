@@ -615,8 +615,36 @@ export async function setSelectedContainer(container: string): Promise<string> {
   return data.selectedContainer;
 }
 
-export async function getClusterStatus(signal?: AbortSignal, forceRefresh = false): Promise<ClusterStatusState> {
-  const endpoint = forceRefresh ? "/api/cluster/status?force=1" : "/api/cluster/status";
+export interface GetClusterStatusOptions {
+  signal?: AbortSignal;
+  forceRefresh?: boolean;
+  view?: "summary" | "full";
+  include?: Array<"metrics" | "storage" | "dgx">;
+  allowStale?: boolean;
+}
+
+export async function getClusterStatus(options: GetClusterStatusOptions = {}): Promise<ClusterStatusState> {
+  const {
+    signal,
+    forceRefresh = false,
+    view = "full",
+    include,
+    allowStale = false,
+  } = options;
+  const params = new URLSearchParams();
+  if (forceRefresh) {
+    params.set("force", "1");
+  }
+  if (view && view !== "full") {
+    params.set("view", view);
+  }
+  if (include && include.length > 0) {
+    params.set("include", include.join(","));
+  }
+  if (allowStale) {
+    params.set("allowStale", "1");
+  }
+  const endpoint = params.size > 0 ? `/api/cluster/status?${params.toString()}` : "/api/cluster/status";
   const response = await fetch(endpoint, { signal });
   if (!response.ok) {
     const msg = await response.text().catch(() => "");

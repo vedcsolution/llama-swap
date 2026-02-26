@@ -166,7 +166,7 @@
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const next = await getClusterStatus(controller.signal);
+      const next = await getClusterStatus({ signal: controller.signal, view: "summary", allowStale: true });
       if (clusterNodesController !== controller) return;
       mergeClusterNodes((next.nodes || []).map((node) => node.ip).filter((ip) => !!ip));
     } catch (err) {

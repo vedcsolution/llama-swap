@@ -72,9 +72,9 @@ type ProxyManager struct {
 	backendActionStatusMu sync.Mutex
 	backendActionStatus   recipeBackendActionStatus
 
-	clusterStatusCacheMu        sync.Mutex
-	clusterStatusCacheExpiresAt time.Time
-	clusterStatusCacheState     clusterStatusState
+	clusterStatusCacheMu              sync.Mutex
+	clusterStatusCacheEntries         map[string]clusterStatusCacheEntry
+	clusterStatusCacheRefreshInFlight map[string]bool
 }
 
 func New(proxyConfig config.Config) *ProxyManager {

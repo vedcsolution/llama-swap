@@ -6,14 +6,46 @@
 
   let loading = true;
   let refreshing = false;
+  let metricsLoading = false;
+  let storageLoading = false;
+  let dgxLoading = false;
   let dgxUpdating = false;
   let dgxUpdatingTargets: Record<string, boolean> = {};
   let dgxUpdateConfirmKey = "";
   let error: string | null = null;
+  let metricsError: string | null = null;
+  let storageError: string | null = null;
+  let dgxError: string | null = null;
   let dgxActionError: string | null = null;
   let dgxActionResult: string | null = null;
   let state: ClusterStatusState | null = null;
-  let refreshController: AbortController | null = null;
+  let requestGeneration = 0;
+  const activeControllers = new Set<AbortController>();
+
+  type ClusterDetailSection = "metrics" | "storage" | "dgx";
+  type ClusterNode = ClusterStatusState["nodes"][number];
+
+  function createRequestController(timeoutMs: number): AbortController {
+    const controller = new AbortController();
+    activeControllers.add(controller);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        activeControllers.delete(controller);
+      },
+      { once: true }
+    );
+    return controller;
+  }
+
+  function abortActiveRequests(): void {
+    for (const controller of Array.from(activeControllers)) {
+      controller.abort();
+    }
+    activeControllers.clear();
+  }
 
   function formatTime(value?: string): string {
     if (!value) return "unknown";
@@ -64,6 +96,84 @@
     return state?.storage?.nodes
       .find((n) => n.ip === ip)
       ?.paths.find((p) => p.path === path);
+  }
+
+  function setSectionsLoading(sections: ClusterDetailSection[], value: boolean): void {
+    if (sections.includes("metrics")) metricsLoading = value;
+    if (sections.includes("storage")) storageLoading = value;
+    if (sections.includes("dgx")) dgxLoading = value;
+  }
+
+  function clearSectionErrors(sections: ClusterDetailSection[]): void {
+    if (sections.includes("metrics")) metricsError = null;
+    if (sections.includes("storage")) storageError = null;
+    if (sections.includes("dgx")) dgxError = null;
+  }
+
+  function setSectionError(sections: ClusterDetailSection[], message: string): void {
+    if (sections.includes("metrics")) metricsError = message;
+    if (sections.includes("storage")) storageError = message;
+    if (sections.includes("dgx")) dgxError = message;
+  }
+
+  function mergeState(next: ClusterStatusState, sections: ClusterDetailSection[]): void {
+    if (!state) {
+      state = next;
+      return;
+    }
+
+    const includeSet = new Set(sections);
+    const incomingByIP = new Map(next.nodes.map((node) => [node.ip, node]));
+    const mergedNodes: ClusterNode[] = [];
+    const seen = new Set<string>();
+    for (const current of state.nodes) {
+      const incoming = incomingByIP.get(current.ip);
+      if (!incoming) {
+        mergedNodes.push(current);
+        continue;
+      }
+      seen.add(current.ip);
+      const merged: ClusterNode = {
+        ...current,
+        isLocal: incoming.isLocal,
+        port22Open: incoming.port22Open,
+        port22LatencyMs: incoming.port22LatencyMs,
+        sshOk: incoming.sshOk,
+        sshLatencyMs: incoming.sshLatencyMs,
+        error: incoming.error,
+      };
+      if (includeSet.has("metrics")) {
+        merged.cpu = incoming.cpu;
+        merged.disk = incoming.disk;
+        merged.gpu = incoming.gpu;
+      }
+      if (includeSet.has("dgx")) {
+        merged.dgx = incoming.dgx;
+      }
+      mergedNodes.push(merged);
+    }
+    for (const incoming of next.nodes) {
+      if (seen.has(incoming.ip)) continue;
+      mergedNodes.push(incoming);
+    }
+
+    state = {
+      ...state,
+      autodiscoverPath: next.autodiscoverPath,
+      detectedAt: next.detectedAt,
+      localIp: next.localIp,
+      cidr: next.cidr,
+      ethIf: next.ethIf,
+      ibIf: next.ibIf,
+      nodeCount: next.nodeCount,
+      remoteCount: next.remoteCount,
+      reachableBySsh: next.reachableBySsh,
+      overall: next.overall,
+      summary: next.summary,
+      errors: next.errors,
+      nodes: mergedNodes,
+      storage: includeSet.has("storage") ? next.storage : state.storage,
+    };
   }
 
   function overallClass(overall: ClusterStatusState["overall"]): string {
@@ -159,30 +269,69 @@
     return { percent: usage, label: `${usage}% (${formatMiB(usedMiB)} / ${formatMiB(totalMiB)})` };
   }
 
+  async function loadDetails(
+    sections: ClusterDetailSection[],
+    generation: number,
+    forceRefresh: boolean
+  ): Promise<void> {
+    const controller = createRequestController(forceRefresh ? 45000 : 30000);
+    try {
+      const next = await getClusterStatus({
+        signal: controller.signal,
+        forceRefresh,
+        view: "full",
+        include: sections,
+        allowStale: !forceRefresh,
+      });
+      if (generation !== requestGeneration) return;
+      mergeState(next, sections);
+      clearSectionErrors(sections);
+    } catch (e) {
+      if (generation !== requestGeneration) return;
+      if (controller.signal.aborted) return;
+      setSectionError(sections, e instanceof Error ? e.message : String(e));
+    } finally {
+      if (generation === requestGeneration) {
+        setSectionsLoading(sections, false);
+      }
+    }
+  }
+
   async function refresh(forceRefresh = false): Promise<void> {
-    refreshController?.abort();
-    const controller = new AbortController();
-    refreshController = controller;
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    abortActiveRequests();
+    const generation = ++requestGeneration;
 
     refreshing = true;
     error = null;
+    metricsError = null;
+    storageError = null;
+    dgxError = null;
     if (!state) loading = true;
+    const controller = createRequestController(15000);
     try {
-      state = await getClusterStatus(controller.signal, forceRefresh);
+      const summary = await getClusterStatus({
+        signal: controller.signal,
+        forceRefresh,
+        view: "summary",
+      });
+      if (generation !== requestGeneration) return;
+      mergeState(summary, []);
+      setSectionsLoading(["metrics", "storage", "dgx"], true);
+      void loadDetails(["metrics", "storage"], generation, forceRefresh);
+      void loadDetails(["dgx"], generation, forceRefresh);
     } catch (e) {
+      if (generation !== requestGeneration) return;
       if (controller.signal.aborted) {
         error = "Timeout al consultar el estado del cluster. Pulsa Refresh para reintentar.";
       } else {
         error = e instanceof Error ? e.message : String(e);
       }
+      setSectionsLoading(["metrics", "storage", "dgx"], false);
     } finally {
-      clearTimeout(timeout);
-      if (refreshController === controller) {
-        refreshController = null;
+      if (generation === requestGeneration) {
+        refreshing = false;
+        loading = false;
       }
-      refreshing = false;
-      loading = false;
     }
   }
 
@@ -250,7 +399,7 @@
   onMount(() => {
     void refresh(false);
     return () => {
-      refreshController?.abort();
+      abortActiveRequests();
     };
   });
 </script>
@@ -281,6 +430,12 @@
       <div class="text-xs text-txtsecondary">
         Última comprobación: {formatTime(state.detectedAt)}
       </div>
+      {#if metricsLoading || storageLoading || dgxLoading}
+        <div class="text-xs text-txtsecondary mt-1">
+          Actualizando detalles:
+          {metricsLoading ? " métricas" : ""}{storageLoading ? " storage" : ""}{dgxLoading ? " dgx" : ""}
+        </div>
+      {/if}
     {/if}
 
     {#if error}
@@ -294,6 +449,21 @@
     {#if dgxActionResult}
       <div class="mt-2 p-2 border border-green-400/30 bg-green-600/10 rounded text-sm text-green-200 whitespace-pre-wrap break-words">
         {dgxActionResult}
+      </div>
+    {/if}
+    {#if metricsError}
+      <div class="mt-2 p-2 border border-amber-400/30 bg-amber-600/10 rounded text-sm text-amber-200 break-words">
+        Error cargando métricas: {metricsError}
+      </div>
+    {/if}
+    {#if storageError}
+      <div class="mt-2 p-2 border border-amber-400/30 bg-amber-600/10 rounded text-sm text-amber-200 break-words">
+        Error cargando storage: {storageError}
+      </div>
+    {/if}
+    {#if dgxError}
+      <div class="mt-2 p-2 border border-amber-400/30 bg-amber-600/10 rounded text-sm text-amber-200 break-words">
+        Error cargando estado DGX: {dgxError}
       </div>
     {/if}
   </div>
@@ -323,6 +493,9 @@
 
       <div class="mb-3">
         <div class="text-sm font-semibold text-txtmain">Recursos por nodo</div>
+        {#if metricsLoading}
+          <div class="text-xs text-txtsecondary mt-1">Cargando métricas (CPU, disco, GPU)...</div>
+        {/if}
         <div class="mt-2 grid grid-cols-1 xl:grid-cols-2 gap-2">
           {#each state.nodes as node}
             {@const cpu = buildCpuSummary(node)}
@@ -453,6 +626,10 @@
             </table>
           </div>
         </div>
+      {:else if storageLoading}
+        <div class="mb-3 p-2 border border-card-border rounded bg-background/40 text-xs text-txtsecondary">
+          Cargando baseline de almacenamiento...
+        </div>
       {/if}
 
       <div class="overflow-auto border border-card-border rounded">
@@ -498,6 +675,8 @@
                     {:else}
                       <span class="text-txtsecondary">n/a</span>
                     {/if}
+                  {:else if dgxLoading}
+                    <span class="text-txtsecondary">loading...</span>
                   {:else}
                     <span class="text-txtsecondary">-</span>
                   {/if}
@@ -523,6 +702,8 @@
                     <div class="text-txtsecondary">{formatTime(node.dgx.checkedAt)}</div>
                   {:else if node.dgx?.error}
                     <span class="text-error">{node.dgx.error}</span>
+                  {:else if dgxLoading}
+                    <span class="text-txtsecondary">loading...</span>
                   {:else}
                     <span class="text-txtsecondary">-</span>
                   {/if}

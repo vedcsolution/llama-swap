@@ -122,9 +122,59 @@ type clusterStorageState struct {
 	Note           string                    `json:"note"`
 }
 
+type clusterStatusView string
+
+const (
+	clusterStatusViewFull    clusterStatusView = "full"
+	clusterStatusViewSummary clusterStatusView = "summary"
+)
+
+type clusterStatusIncludeSet struct {
+	Metrics bool
+	Storage bool
+	DGX     bool
+}
+
+type clusterStatusRequestOptions struct {
+	ForceRefresh bool
+	AllowStale   bool
+	View         clusterStatusView
+	Include      clusterStatusIncludeSet
+}
+
+type clusterStatusLoadOptions struct {
+	View    clusterStatusView
+	Include clusterStatusIncludeSet
+}
+
+type clusterStatusTimings struct {
+	Autodiscover time.Duration
+	Probe        time.Duration
+	Metrics      time.Duration
+	Storage      time.Duration
+	DGX          time.Duration
+	Total        time.Duration
+}
+
+type clusterStatusCacheEntry struct {
+	State     clusterStatusState
+	Timings   clusterStatusTimings
+	CachedAt  time.Time
+	ExpiresAt time.Time
+}
+
+type clusterStatusCachedResult struct {
+	State      clusterStatusState
+	Timings    clusterStatusTimings
+	CacheState string
+	CacheAgeMs int64
+}
+
+type clusterStatusLoader func(context.Context, clusterStatusLoadOptions) (clusterStatusState, clusterStatusTimings, error)
+
 func (pm *ProxyManager) apiGetClusterStatus(c *gin.Context) {
-	forceRefresh := isTruthy(strings.TrimSpace(c.Query("force"))) || isTruthy(strings.TrimSpace(c.Query("refresh")))
-	state, err := pm.readClusterStatusCached(c.Request.Context(), forceRefresh)
+	opts := parseClusterStatusRequestOptions(c)
+	result, err := pm.readClusterStatusCached(c.Request.Context(), opts)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":            err.Error(),
@@ -132,38 +182,202 @@ func (pm *ProxyManager) apiGetClusterStatus(c *gin.Context) {
 		})
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	c.Header("X-Cluster-Cache-State", result.CacheState)
+	c.Header("X-Cluster-Cache-Age-Ms", strconv.FormatInt(result.CacheAgeMs, 10))
+	c.Header("Server-Timing", formatClusterServerTiming(result.Timings))
+	c.JSON(http.StatusOK, result.State)
 }
 
-func (pm *ProxyManager) readClusterStatusCached(parentCtx context.Context, forceRefresh bool) (clusterStatusState, error) {
-	return pm.readClusterStatusCachedWithLoader(parentCtx, forceRefresh, pm.readClusterStatus)
+func parseClusterStatusRequestOptions(c *gin.Context) clusterStatusRequestOptions {
+	forceRefresh := isTruthy(strings.TrimSpace(c.Query("force"))) || isTruthy(strings.TrimSpace(c.Query("refresh")))
+	allowStale := isTruthy(strings.TrimSpace(c.Query("allowStale")))
+	view := parseClusterStatusView(c.Query("view"))
+	include, includeSpecified := parseClusterStatusIncludes(c)
+	if view == clusterStatusViewSummary {
+		include = clusterStatusIncludeSet{}
+	} else if !includeSpecified {
+		include = clusterStatusIncludeSet{
+			Metrics: true,
+			Storage: true,
+			DGX:     true,
+		}
+	}
+
+	return clusterStatusRequestOptions{
+		ForceRefresh: forceRefresh,
+		AllowStale:   allowStale,
+		View:         view,
+		Include:      include,
+	}
+}
+
+func parseClusterStatusView(raw string) clusterStatusView {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case string(clusterStatusViewSummary):
+		return clusterStatusViewSummary
+	default:
+		return clusterStatusViewFull
+	}
+}
+
+func parseClusterStatusIncludes(c *gin.Context) (clusterStatusIncludeSet, bool) {
+	values := c.QueryArray("include")
+	if len(values) == 0 {
+		return clusterStatusIncludeSet{}, false
+	}
+	include := clusterStatusIncludeSet{}
+	for _, rawValue := range values {
+		for _, token := range strings.Split(rawValue, ",") {
+			switch strings.ToLower(strings.TrimSpace(token)) {
+			case "metrics":
+				include.Metrics = true
+			case "storage":
+				include.Storage = true
+			case "dgx":
+				include.DGX = true
+			}
+		}
+	}
+	return include, true
+}
+
+func (opts clusterStatusRequestOptions) cacheKey() string {
+	if opts.View == clusterStatusViewSummary {
+		return string(clusterStatusViewSummary)
+	}
+
+	parts := make([]string, 0, 3)
+	if opts.Include.Metrics {
+		parts = append(parts, "metrics")
+	}
+	if opts.Include.Storage {
+		parts = append(parts, "storage")
+	}
+	if opts.Include.DGX {
+		parts = append(parts, "dgx")
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "none")
+	}
+	return string(clusterStatusViewFull) + ":" + strings.Join(parts, ",")
+}
+
+func (opts clusterStatusRequestOptions) loadOptions() clusterStatusLoadOptions {
+	return clusterStatusLoadOptions{
+		View:    opts.View,
+		Include: opts.Include,
+	}
+}
+
+func (pm *ProxyManager) readClusterStatusCached(parentCtx context.Context, opts clusterStatusRequestOptions) (clusterStatusCachedResult, error) {
+	return pm.readClusterStatusCachedWithLoader(parentCtx, opts, pm.readClusterStatus)
 }
 
 func (pm *ProxyManager) readClusterStatusCachedWithLoader(
 	parentCtx context.Context,
-	forceRefresh bool,
-	loader func(context.Context) (clusterStatusState, error),
-) (clusterStatusState, error) {
+	opts clusterStatusRequestOptions,
+	loader clusterStatusLoader,
+) (clusterStatusCachedResult, error) {
 	ttl := clusterStatusCacheTTL()
 	if ttl <= 0 {
-		return loader(parentCtx)
+		state, timings, err := loader(parentCtx, opts.loadOptions())
+		if err != nil {
+			return clusterStatusCachedResult{}, err
+		}
+		return clusterStatusCachedResult{
+			State:      state,
+			Timings:    timings,
+			CacheState: "miss",
+			CacheAgeMs: 0,
+		}, nil
 	}
 
+	key := opts.cacheKey()
+	now := time.Now()
+	pm.clusterStatusCacheMu.Lock()
+	if pm.clusterStatusCacheEntries == nil {
+		pm.clusterStatusCacheEntries = make(map[string]clusterStatusCacheEntry)
+	}
+	if pm.clusterStatusCacheRefreshInFlight == nil {
+		pm.clusterStatusCacheRefreshInFlight = make(map[string]bool)
+	}
+	if entry, ok := pm.clusterStatusCacheEntries[key]; ok && !opts.ForceRefresh {
+		ageMs := now.Sub(entry.CachedAt).Milliseconds()
+		if ageMs < 0 {
+			ageMs = 0
+		}
+		if now.Before(entry.ExpiresAt) {
+			pm.clusterStatusCacheMu.Unlock()
+			return clusterStatusCachedResult{
+				State:      entry.State,
+				Timings:    entry.Timings,
+				CacheState: "fresh",
+				CacheAgeMs: ageMs,
+			}, nil
+		}
+		if opts.AllowStale {
+			if !pm.clusterStatusCacheRefreshInFlight[key] {
+				pm.clusterStatusCacheRefreshInFlight[key] = true
+				go pm.refreshClusterStatusCacheEntry(key, opts.loadOptions(), ttl, loader)
+			}
+			pm.clusterStatusCacheMu.Unlock()
+			return clusterStatusCachedResult{
+				State:      entry.State,
+				Timings:    entry.Timings,
+				CacheState: "stale",
+				CacheAgeMs: ageMs,
+			}, nil
+		}
+	}
+	pm.clusterStatusCacheMu.Unlock()
+
+	state, timings, err := loader(parentCtx, opts.loadOptions())
+	if err != nil {
+		return clusterStatusCachedResult{}, err
+	}
+
+	cachedAt := time.Now()
+	pm.clusterStatusCacheMu.Lock()
+	pm.clusterStatusCacheEntries[key] = clusterStatusCacheEntry{
+		State:     state,
+		Timings:   timings,
+		CachedAt:  cachedAt,
+		ExpiresAt: cachedAt.Add(ttl),
+	}
+	delete(pm.clusterStatusCacheRefreshInFlight, key)
+	pm.clusterStatusCacheMu.Unlock()
+
+	return clusterStatusCachedResult{
+		State:      state,
+		Timings:    timings,
+		CacheState: "miss",
+		CacheAgeMs: 0,
+	}, nil
+}
+
+func (pm *ProxyManager) refreshClusterStatusCacheEntry(
+	key string,
+	opts clusterStatusLoadOptions,
+	ttl time.Duration,
+	loader clusterStatusLoader,
+) {
+	ctx, cancel := context.WithTimeout(context.Background(), clusterStatusReadTimeout)
+	defer cancel()
+
+	state, timings, err := loader(ctx, opts)
 	pm.clusterStatusCacheMu.Lock()
 	defer pm.clusterStatusCacheMu.Unlock()
-
-	if !forceRefresh && !pm.clusterStatusCacheExpiresAt.IsZero() && time.Now().Before(pm.clusterStatusCacheExpiresAt) {
-		return pm.clusterStatusCacheState, nil
-	}
-
-	state, err := loader(parentCtx)
+	delete(pm.clusterStatusCacheRefreshInFlight, key)
 	if err != nil {
-		return clusterStatusState{}, err
+		return
 	}
-
-	pm.clusterStatusCacheState = state
-	pm.clusterStatusCacheExpiresAt = time.Now().Add(ttl)
-	return state, nil
+	cachedAt := time.Now()
+	pm.clusterStatusCacheEntries[key] = clusterStatusCacheEntry{
+		State:     state,
+		Timings:   timings,
+		CachedAt:  cachedAt,
+		ExpiresAt: cachedAt.Add(ttl),
+	}
 }
 
 func clusterStatusCacheTTL() time.Duration {
@@ -191,10 +405,29 @@ func isTruthy(value string) bool {
 	}
 }
 
-func (pm *ProxyManager) readClusterStatus(parentCtx context.Context) (clusterStatusState, error) {
+func formatClusterServerTiming(timing clusterStatusTimings) string {
+	parts := []string{
+		fmt.Sprintf("autodiscover;dur=%s", formatClusterDurationMs(timing.Autodiscover)),
+		fmt.Sprintf("probe;dur=%s", formatClusterDurationMs(timing.Probe)),
+		fmt.Sprintf("metrics;dur=%s", formatClusterDurationMs(timing.Metrics)),
+		fmt.Sprintf("storage;dur=%s", formatClusterDurationMs(timing.Storage)),
+		fmt.Sprintf("dgx;dur=%s", formatClusterDurationMs(timing.DGX)),
+		fmt.Sprintf("total;dur=%s", formatClusterDurationMs(timing.Total)),
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatClusterDurationMs(d time.Duration) string {
+	return strconv.FormatFloat(float64(d.Microseconds())/1000.0, 'f', 1, 64)
+}
+
+func (pm *ProxyManager) readClusterStatus(parentCtx context.Context, opts clusterStatusLoadOptions) (clusterStatusState, clusterStatusTimings, error) {
+	timings := clusterStatusTimings{}
+	totalStartedAt := time.Now()
+
 	autodiscoverPath := clusterAutodiscoverPath()
 	if stat, err := os.Stat(autodiscoverPath); err != nil || stat.IsDir() {
-		return clusterStatusState{}, fmt.Errorf(
+		return clusterStatusState{}, timings, fmt.Errorf(
 			"autodiscover.sh not found: %s (set %s or place autodiscover.sh in repo root)",
 			autodiscoverPath,
 			clusterAutodiscoverPathEnv,
@@ -204,7 +437,9 @@ func (pm *ProxyManager) readClusterStatus(parentCtx context.Context) (clusterSta
 	ctx, cancel := context.WithTimeout(parentCtx, clusterStatusReadTimeout)
 	defer cancel()
 
+	autodiscoverStartedAt := time.Now()
 	values, detectErrors := runAutodiscoverSnapshot(ctx, autodiscoverPath)
+	timings.Autodiscover = time.Since(autodiscoverStartedAt)
 	nodes := parseNodesArg(values["NODES_ARG"])
 	localIP := strings.TrimSpace(values["LOCAL_IP"])
 	if localIP != "" && !containsString(nodes, localIP) {
@@ -215,6 +450,7 @@ func (pm *ProxyManager) readClusterStatus(parentCtx context.Context) (clusterSta
 	}
 
 	nodeStatuses := make([]clusterNodeStatus, len(nodes))
+	probeStartedAt := time.Now()
 	var wg sync.WaitGroup
 	for idx := range nodes {
 		idx := idx
@@ -255,14 +491,52 @@ func (pm *ProxyManager) readClusterStatus(parentCtx context.Context) (clusterSta
 		}()
 	}
 	wg.Wait()
-	populateClusterCPUStatus(ctx, nodeStatuses)
-	populateClusterDiskStatus(ctx, nodeStatuses)
-	populateClusterGPUStatus(ctx, nodeStatuses)
-	storage := buildClusterStorageState(ctx, nodeStatuses)
+	timings.Probe = time.Since(probeStartedAt)
 
-	dgxCtx, dgxCancel := context.WithTimeout(ctx, dgxClusterReadTimeout)
-	populateClusterDGXStatus(dgxCtx, nodeStatuses)
-	dgxCancel()
+	var storage *clusterStorageState
+	if opts.View == clusterStatusViewFull {
+		probeSnapshot := make([]clusterNodeStatus, len(nodeStatuses))
+		copy(probeSnapshot, nodeStatuses)
+		var heavyWG sync.WaitGroup
+		dgxStatuses := make([]*clusterDGXStatus, len(nodeStatuses))
+		if opts.Include.Metrics {
+			heavyWG.Add(1)
+			go func() {
+				defer heavyWG.Done()
+				metricsStartedAt := time.Now()
+				populateClusterCPUStatus(ctx, nodeStatuses)
+				populateClusterDiskStatus(ctx, nodeStatuses)
+				populateClusterGPUStatus(ctx, nodeStatuses)
+				timings.Metrics = time.Since(metricsStartedAt)
+			}()
+		}
+		if opts.Include.Storage {
+			heavyWG.Add(1)
+			go func() {
+				defer heavyWG.Done()
+				storageStartedAt := time.Now()
+				storage = buildClusterStorageState(ctx, probeSnapshot)
+				timings.Storage = time.Since(storageStartedAt)
+			}()
+		}
+		if opts.Include.DGX {
+			heavyWG.Add(1)
+			go func() {
+				defer heavyWG.Done()
+				dgxStartedAt := time.Now()
+				dgxCtx, dgxCancel := context.WithTimeout(ctx, dgxClusterReadTimeout)
+				dgxStatuses = populateClusterDGXStatus(dgxCtx, probeSnapshot)
+				dgxCancel()
+				timings.DGX = time.Since(dgxStartedAt)
+			}()
+		}
+		heavyWG.Wait()
+		if opts.Include.DGX {
+			for idx := range nodeStatuses {
+				nodeStatuses[idx].DGX = dgxStatuses[idx]
+			}
+		}
+	}
 
 	sort.Slice(nodeStatuses, func(i, j int) bool {
 		if nodeStatuses[i].IsLocal != nodeStatuses[j].IsLocal {
@@ -301,6 +575,7 @@ func (pm *ProxyManager) readClusterStatus(parentCtx context.Context) (clusterSta
 	}
 
 	summary := buildClusterSummary(overall, len(nodeStatuses), remoteCount, reachableBySSH, detectErrors)
+	timings.Total = time.Since(totalStartedAt)
 	return clusterStatusState{
 		AutodiscoverPath: autodiscoverPath,
 		DetectedAt:       time.Now().UTC().Format(time.RFC3339),
@@ -316,7 +591,7 @@ func (pm *ProxyManager) readClusterStatus(parentCtx context.Context) (clusterSta
 		Errors:           detectErrors,
 		Nodes:            nodeStatuses,
 		Storage:          storage,
-	}, nil
+	}, timings, nil
 }
 
 func populateClusterCPUStatus(parentCtx context.Context, nodes []clusterNodeStatus) {

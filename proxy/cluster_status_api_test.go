@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -42,8 +44,10 @@ func TestClusterAutodiscoverPath_UsesWorkingDirectory(t *testing.T) {
 	})
 	t.Setenv(clusterAutodiscoverPathEnv, "")
 
-	if got := clusterAutodiscoverPath(); got != scriptPath {
-		t.Fatalf("clusterAutodiscoverPath() = %q, want %q", got, scriptPath)
+	got := normalizePathForComparison(t, clusterAutodiscoverPath())
+	want := normalizePathForComparison(t, scriptPath)
+	if got != want {
+		t.Fatalf("clusterAutodiscoverPath() = %q, want %q", got, want)
 	}
 }
 
@@ -76,55 +80,159 @@ func TestAPIGetClusterStatus_ErrorPayloadOmitsBackendDir(t *testing.T) {
 	}
 }
 
-func TestProxyManager_ClusterStatusCache_ReusesFreshValue(t *testing.T) {
-	t.Setenv(clusterStatusCacheTTLEnv, "60")
-	pm := &ProxyManager{}
-	calls := 0
-	loader := func(_ context.Context) (clusterStatusState, error) {
-		calls++
-		return clusterStatusState{DetectedAt: fmt.Sprintf("call-%d", calls)}, nil
+func TestProxyManager_ClusterStatusSummary_SkipsHeavyCollectors(t *testing.T) {
+	opts := parseOptsForURL(t, "/api/cluster/status?view=summary")
+	if opts.View != clusterStatusViewSummary {
+		t.Fatalf("view = %q, want %q", opts.View, clusterStatusViewSummary)
 	}
-
-	first, err := pm.readClusterStatusCachedWithLoader(context.Background(), false, loader)
-	if err != nil {
-		t.Fatalf("first readClusterStatusCachedWithLoader error: %v", err)
-	}
-	second, err := pm.readClusterStatusCachedWithLoader(context.Background(), false, loader)
-	if err != nil {
-		t.Fatalf("second readClusterStatusCachedWithLoader error: %v", err)
-	}
-
-	if calls != 1 {
-		t.Fatalf("loader calls = %d, want 1", calls)
-	}
-	if first.DetectedAt != second.DetectedAt {
-		t.Fatalf("cached detectedAt mismatch: first=%q second=%q", first.DetectedAt, second.DetectedAt)
+	if opts.Include.Metrics || opts.Include.Storage || opts.Include.DGX {
+		t.Fatalf("summary view should disable heavy collectors, got include=%+v", opts.Include)
 	}
 }
 
-func TestProxyManager_ClusterStatusCache_ForceRefreshBypassesCache(t *testing.T) {
+func TestProxyManager_ClusterStatusFull_DefaultIncludesAll(t *testing.T) {
+	opts := parseOptsForURL(t, "/api/cluster/status")
+	if opts.View != clusterStatusViewFull {
+		t.Fatalf("view = %q, want %q", opts.View, clusterStatusViewFull)
+	}
+	if !opts.Include.Metrics || !opts.Include.Storage || !opts.Include.DGX {
+		t.Fatalf("default full view should include all collectors, got include=%+v", opts.Include)
+	}
+}
+
+func TestProxyManager_ClusterStatusIncludeMask_SelectsCollectors(t *testing.T) {
+	opts := parseOptsForURL(t, "/api/cluster/status?view=full&include=metrics,dgx")
+	if !opts.Include.Metrics || opts.Include.Storage || !opts.Include.DGX {
+		t.Fatalf("unexpected include mask: %+v", opts.Include)
+	}
+}
+
+func TestAPIGetClusterStatus_BackwardCompatibleWithoutQueryParams(t *testing.T) {
+	opts := parseOptsForURL(t, "/api/cluster/status")
+	if opts.ForceRefresh {
+		t.Fatalf("force refresh should be disabled by default")
+	}
+	if opts.AllowStale {
+		t.Fatalf("allowStale should be disabled by default")
+	}
+	if opts.View != clusterStatusViewFull {
+		t.Fatalf("default view = %q, want %q", opts.View, clusterStatusViewFull)
+	}
+	if !opts.Include.Metrics || !opts.Include.Storage || !opts.Include.DGX {
+		t.Fatalf("default include should keep compatibility with full payload, got include=%+v", opts.Include)
+	}
+}
+
+func TestProxyManager_ClusterStatusCache_AllowStaleReturnsImmediately(t *testing.T) {
 	t.Setenv(clusterStatusCacheTTLEnv, "60")
 	pm := &ProxyManager{}
-	calls := 0
-	loader := func(_ context.Context) (clusterStatusState, error) {
-		calls++
-		return clusterStatusState{DetectedAt: fmt.Sprintf("call-%d", calls)}, nil
+	includeAll := clusterStatusIncludeSet{Metrics: true, Storage: true, DGX: true}
+	opts := clusterStatusRequestOptions{
+		View:       clusterStatusViewFull,
+		Include:    includeAll,
+		AllowStale: true,
+	}
+	key := opts.cacheKey()
+	now := time.Now()
+	pm.clusterStatusCacheEntries = map[string]clusterStatusCacheEntry{
+		key: {
+			State:     clusterStatusState{DetectedAt: "stale"},
+			Timings:   clusterStatusTimings{Total: 7 * time.Second},
+			CachedAt:  now.Add(-2 * time.Minute),
+			ExpiresAt: now.Add(-time.Minute),
+		},
+	}
+	pm.clusterStatusCacheRefreshInFlight = make(map[string]bool)
+
+	loaderCalled := make(chan struct{}, 1)
+	loader := func(_ context.Context, _ clusterStatusLoadOptions) (clusterStatusState, clusterStatusTimings, error) {
+		select {
+		case loaderCalled <- struct{}{}:
+		default:
+		}
+		time.Sleep(120 * time.Millisecond)
+		return clusterStatusState{DetectedAt: "fresh"}, clusterStatusTimings{Total: 123 * time.Millisecond}, nil
 	}
 
-	first, err := pm.readClusterStatusCachedWithLoader(context.Background(), false, loader)
+	startedAt := time.Now()
+	result, err := pm.readClusterStatusCachedWithLoader(context.Background(), opts, loader)
 	if err != nil {
-		t.Fatalf("first readClusterStatusCachedWithLoader error: %v", err)
+		t.Fatalf("readClusterStatusCachedWithLoader error: %v", err)
 	}
-	second, err := pm.readClusterStatusCachedWithLoader(context.Background(), true, loader)
-	if err != nil {
-		t.Fatalf("forced readClusterStatusCachedWithLoader error: %v", err)
+	if elapsed := time.Since(startedAt); elapsed > 80*time.Millisecond {
+		t.Fatalf("stale response should be immediate, got elapsed=%s", elapsed)
+	}
+	if result.CacheState != "stale" {
+		t.Fatalf("cache state = %q, want stale", result.CacheState)
+	}
+	if result.State.DetectedAt != "stale" {
+		t.Fatalf("detectedAt = %q, want stale payload", result.State.DetectedAt)
 	}
 
-	if calls != 2 {
-		t.Fatalf("loader calls = %d, want 2", calls)
+	select {
+	case <-loaderCalled:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("expected background refresh loader to run")
 	}
-	if first.DetectedAt == second.DetectedAt {
-		t.Fatalf("expected force refresh to replace cache, got same detectedAt=%q", first.DetectedAt)
+
+	deadline := time.Now().Add(1200 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		pm.clusterStatusCacheMu.Lock()
+		entry := pm.clusterStatusCacheEntries[key]
+		pm.clusterStatusCacheMu.Unlock()
+		if entry.State.DetectedAt == "fresh" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected stale cache entry to be refreshed in background")
+}
+
+func TestProxyManager_ClusterStatusCache_ForceRefreshBypassesStale(t *testing.T) {
+	t.Setenv(clusterStatusCacheTTLEnv, "60")
+	pm := &ProxyManager{}
+	includeAll := clusterStatusIncludeSet{Metrics: true, Storage: true, DGX: true}
+	opts := clusterStatusRequestOptions{
+		View:         clusterStatusViewFull,
+		Include:      includeAll,
+		AllowStale:   true,
+		ForceRefresh: true,
+	}
+	key := opts.cacheKey()
+	now := time.Now()
+	pm.clusterStatusCacheEntries = map[string]clusterStatusCacheEntry{
+		key: {
+			State:     clusterStatusState{DetectedAt: "stale"},
+			Timings:   clusterStatusTimings{Total: 5 * time.Second},
+			CachedAt:  now.Add(-2 * time.Minute),
+			ExpiresAt: now.Add(-time.Minute),
+		},
+	}
+	pm.clusterStatusCacheRefreshInFlight = make(map[string]bool)
+
+	var calls int32
+	loader := func(_ context.Context, _ clusterStatusLoadOptions) (clusterStatusState, clusterStatusTimings, error) {
+		atomic.AddInt32(&calls, 1)
+		time.Sleep(100 * time.Millisecond)
+		return clusterStatusState{DetectedAt: "fresh"}, clusterStatusTimings{Total: 100 * time.Millisecond}, nil
+	}
+
+	startedAt := time.Now()
+	result, err := pm.readClusterStatusCachedWithLoader(context.Background(), opts, loader)
+	if err != nil {
+		t.Fatalf("readClusterStatusCachedWithLoader error: %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed < 90*time.Millisecond {
+		t.Fatalf("force refresh should bypass stale cache, elapsed=%s", elapsed)
+	}
+	if result.CacheState != "miss" {
+		t.Fatalf("cache state = %q, want miss", result.CacheState)
+	}
+	if result.State.DetectedAt != "fresh" {
+		t.Fatalf("detectedAt = %q, want fresh payload", result.State.DetectedAt)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("loader calls = %d, want 1", got)
 	}
 }
 
@@ -132,21 +240,44 @@ func TestProxyManager_ClusterStatusCache_DisabledWhenTTLZero(t *testing.T) {
 	t.Setenv(clusterStatusCacheTTLEnv, "0")
 	pm := &ProxyManager{}
 	calls := 0
-	loader := func(_ context.Context) (clusterStatusState, error) {
+	loader := func(_ context.Context, _ clusterStatusLoadOptions) (clusterStatusState, clusterStatusTimings, error) {
 		calls++
-		return clusterStatusState{DetectedAt: fmt.Sprintf("call-%d", calls)}, nil
+		return clusterStatusState{DetectedAt: fmt.Sprintf("call-%d", calls)}, clusterStatusTimings{}, nil
 	}
 
-	_, err := pm.readClusterStatusCachedWithLoader(context.Background(), false, loader)
+	_, err := pm.readClusterStatusCachedWithLoader(context.Background(), clusterStatusRequestOptions{
+		View:    clusterStatusViewFull,
+		Include: clusterStatusIncludeSet{Metrics: true, Storage: true, DGX: true},
+	}, loader)
 	if err != nil {
 		t.Fatalf("first readClusterStatusCachedWithLoader error: %v", err)
 	}
-	_, err = pm.readClusterStatusCachedWithLoader(context.Background(), false, loader)
+	_, err = pm.readClusterStatusCachedWithLoader(context.Background(), clusterStatusRequestOptions{
+		View:    clusterStatusViewFull,
+		Include: clusterStatusIncludeSet{Metrics: true, Storage: true, DGX: true},
+	}, loader)
 	if err != nil {
 		t.Fatalf("second readClusterStatusCachedWithLoader error: %v", err)
 	}
-
 	if calls != 2 {
 		t.Fatalf("loader calls = %d, want 2 when cache disabled", calls)
 	}
+}
+
+func parseOptsForURL(t *testing.T, rawURL string) clusterStatusRequestOptions {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = httptest.NewRequest(http.MethodGet, rawURL, nil)
+	return parseClusterStatusRequestOptions(ctx)
+}
+
+func normalizePathForComparison(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(resolved)
 }

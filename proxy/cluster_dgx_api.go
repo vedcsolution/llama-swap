@@ -150,14 +150,15 @@ func (pm *ProxyManager) apiRunClusterDGXUpdate(c *gin.Context) {
 	})
 }
 
-func populateClusterDGXStatus(parentCtx context.Context, nodes []clusterNodeStatus) {
+func populateClusterDGXStatus(parentCtx context.Context, nodes []clusterNodeStatus) []*clusterDGXStatus {
+	statuses := make([]*clusterDGXStatus, len(nodes))
 	var wg sync.WaitGroup
 	for idx := range nodes {
 		idx := idx
 		node := nodes[idx]
 
 		if !node.IsLocal && !node.SSHOK {
-			nodes[idx].DGX = &clusterDGXStatus{
+			statuses[idx] = &clusterDGXStatus{
 				Supported: false,
 				CheckedAt: time.Now().UTC().Format(time.RFC3339),
 				Error:     "ssh not available",
@@ -168,10 +169,11 @@ func populateClusterDGXStatus(parentCtx context.Context, nodes []clusterNodeStat
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			nodes[idx].DGX = queryNodeDGXStatus(parentCtx, node.IP, node.IsLocal)
+			statuses[idx] = queryNodeDGXStatus(parentCtx, node.IP, node.IsLocal)
 		}()
 	}
 	wg.Wait()
+	return statuses
 }
 
 func queryNodeDGXStatus(parentCtx context.Context, host string, isLocal bool) *clusterDGXStatus {
