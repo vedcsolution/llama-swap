@@ -959,6 +959,52 @@ func TestProxyManager_UpsertRecipeModel_VLLMSingleNodeInjectsRuntimeCacheArgsRem
 	}
 }
 
+func TestProxyManager_SyncManagedModelsWithRecipeDefaults_TP2PromotesCluster(t *testing.T) {
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-vllm-sync", "vllm")
+
+	_, err := pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+		ModelID:        "runtime-vllm-sync-model",
+		RecipeRef:      "runtime-vllm-sync",
+		Mode:           "cluster",
+		TensorParallel: 1,
+		Nodes:          "192.0.2.10",
+	})
+	if err != nil {
+		t.Fatalf("upsertRecipeModel() error: %v", err)
+	}
+
+	recipePath := filepath.Join(filepath.Dir(cfgPath), "recipes", "runtime-vllm-sync.yaml")
+	recipeBody := "" +
+		"name: Runtime Cache Recipe\n" +
+		"description: test recipe\n" +
+		"model: test/model\n" +
+		"runtime: vllm\n" +
+		"backend: spark-vllm-docker\n" +
+		"defaults:\n" +
+		"  tensor_parallel: 2\n"
+	if err := os.WriteFile(recipePath, []byte(recipeBody), 0o644); err != nil {
+		t.Fatalf("write recipe file: %v", err)
+	}
+
+	if err := pm.syncManagedModelsWithRecipeDefaults(context.Background(), "runtime-vllm-sync"); err != nil {
+		t.Fatalf("syncManagedModelsWithRecipeDefaults() error: %v", err)
+	}
+
+	cmd, recipeMeta := readRecipeModelCommandAndMeta(t, cfgPath, "runtime-vllm-sync-model")
+	if got := intFromAny(recipeMeta["tensor_parallel"]); got != 2 {
+		t.Fatalf("tensor_parallel = %d, want 2 (meta=%#v)", got, recipeMeta)
+	}
+	if mode := strings.ToLower(strings.TrimSpace(getString(recipeMeta, "mode"))); mode != "cluster" {
+		t.Fatalf("mode = %q, want cluster (meta=%#v)", mode, recipeMeta)
+	}
+	if strings.Contains(cmd, " --solo") {
+		t.Fatalf("expected cluster command without --solo, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, " --tp 2") {
+		t.Fatalf("expected command to include --tp 2, got: %s", cmd)
+	}
+}
+
 func TestProxyManager_UpsertRecipeModel_VLLMClusterCmdUsesConditionalReset(t *testing.T) {
 	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-vllm-cluster-reset", "vllm")
 

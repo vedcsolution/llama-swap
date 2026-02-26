@@ -989,6 +989,10 @@ func (pm *ProxyManager) apiSaveRecipeSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if err := pm.syncManagedModelsWithRecipeDefaults(c.Request.Context(), state.RecipeRef); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	pm.syncRecipesToClusterAsync("save_recipe")
 	c.JSON(http.StatusOK, state)
 }
@@ -3288,6 +3292,106 @@ func (pm *ProxyManager) saveRecipeSourceState(recipeRef string, content string) 
 	}
 
 	return pm.readRecipeSourceState(item.Ref)
+}
+
+func normalizeRecipeRefKey(value string) string {
+	v := strings.TrimSpace(value)
+	v = strings.TrimSuffix(strings.TrimSuffix(v, ".yaml"), ".yml")
+	v = filepath.ToSlash(v)
+	return v
+}
+
+func recipeRefMatchesItem(modelRecipeRef string, item RecipeCatalogItem) bool {
+	modelKey := normalizeRecipeRefKey(modelRecipeRef)
+	if modelKey == "" {
+		return false
+	}
+	itemRefKey := normalizeRecipeRefKey(item.Ref)
+	itemIDKey := normalizeRecipeRefKey(item.ID)
+	return modelKey == itemRefKey || modelKey == itemIDKey || filepath.Base(modelKey) == itemIDKey
+}
+
+func (pm *ProxyManager) syncManagedModelsWithRecipeDefaults(parentCtx context.Context, recipeRef string) error {
+	item, err := resolveCatalogRecipeItem(recipeRef)
+	if err != nil {
+		return err
+	}
+
+	state, err := pm.buildRecipeUIState()
+	if err != nil {
+		return err
+	}
+
+	configPath, err := pm.getConfigPath()
+	if err != nil {
+		return err
+	}
+	root, err := loadConfigRawMap(configPath)
+	if err != nil {
+		return err
+	}
+
+	desiredTP := item.DefaultTensorParallel
+	if desiredTP <= 0 {
+		desiredTP = 1
+	}
+
+	updated := 0
+	for _, model := range state.Models {
+		if !recipeRefMatchesItem(model.RecipeRef, item) {
+			continue
+		}
+
+		req := upsertRecipeModelRequest{
+			ModelID:               model.ModelID,
+			RecipeRef:             item.Ref,
+			Name:                  model.Name,
+			Description:           model.Description,
+			Aliases:               model.Aliases,
+			UseModelName:          model.UseModelName,
+			Mode:                  model.Mode,
+			TensorParallel:        desiredTP,
+			Nodes:                 model.Nodes,
+			ExtraArgs:             model.ExtraArgs,
+			Group:                 model.Group,
+			Unlisted:              model.Unlisted,
+			BenchyTrustRemoteCode: model.BenchyTrustRemoteCode,
+			ContainerImage:        model.ContainerImage,
+			NonPrivileged:         model.NonPrivileged,
+			MemLimitGb:            model.MemLimitGb,
+			MemSwapLimitGb:        model.MemSwapLimitGb,
+			PidsLimit:             model.PidsLimit,
+			ShmSizeGb:             model.ShmSizeGb,
+		}
+
+		if req.TensorParallel > 1 {
+			req.Mode = "cluster"
+			// If this model used to be TP1 (often pinned to one node), switch to backend default nodes.
+			// Preserve explicit multi-node selections previously configured by the user.
+			if model.TensorParallel <= 1 {
+				req.Nodes = ""
+				if expr, ok := backendMacroExprForKind(root, item.BackendKind, "nodes"); ok {
+					req.Nodes = expr
+				} else {
+					req.Nodes = model.Nodes
+				}
+			}
+		}
+
+		if req.TensorParallel <= 1 && strings.TrimSpace(req.Mode) == "" {
+			req.Mode = "solo"
+		}
+
+		if _, err := pm.upsertRecipeModel(parentCtx, req); err != nil {
+			return fmt.Errorf("failed to refresh model %s from recipe %s: %w", model.ModelID, item.Ref, err)
+		}
+		updated++
+	}
+
+	if updated > 0 {
+		pm.proxyLogger.Infof("recipe save refreshed %d model(s) from %s (default TP=%d)", updated, item.Ref, desiredTP)
+	}
+	return nil
 }
 
 func (pm *ProxyManager) createRecipeSourceState(recipeRef string, content string, overwrite bool) (recipeSourceState, error) {
