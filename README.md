@@ -1,6 +1,13 @@
 # Swap Laboratories
 
-Swap Laboratories is a fork of `llama-swap` focused on operating recipe-based inference clusters from the `spark-*` backend repos (`vLLM`, `TRT-LLM`, `SGLang`) with a practical web control plane.
+Swap Laboratories is a fork of `llama-swap` focused on operating recipe-based inference clusters with a practical web control plane.
+
+Current backend support in this fork is limited to:
+
+- `vLLM` (`spark-vllm-docker`)
+- `llama.cpp` (`spark-llama-cpp`)
+
+`SGLang` and `TRT-LLM` are planned for a later phase.
 
 Upstream project: [mostlygeek/llama-swap](https://github.com/mostlygeek/llama-swap)
 
@@ -17,7 +24,7 @@ This repository keeps the core model-swap proxy behavior and adds an operations 
   - Git sync (`git_pull`, `git_pull_rebase`)
   - HF model download (`download_hf_model` via `hf-download.sh`)
   - vLLM builds (`build_vllm`, `build_mxfp4`, `build_vllm_12_0f`)
-  - TRT-LLM and NVIDIA image management (`pull_*_image`, `update_*_image`)
+  - NVIDIA image management (`pull_*_image`, `update_*_image`) for current vLLM workflows
   - llama.cpp image build (`build_llamacpp`)
 - Home-safe path rendering in UI (`~` instead of hardcoded absolute home path in labels).
 
@@ -57,6 +64,8 @@ Then open:
 - API health: `http://127.0.0.1:8080/health`
 
 ## Backend + Recipe Workflow
+
+Scope note: this workflow currently targets `vLLM` and `llama.cpp` backends only.
 
 ### 1) Pick backend root
 
