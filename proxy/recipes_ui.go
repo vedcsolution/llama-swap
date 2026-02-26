@@ -3894,6 +3894,12 @@ func normalizeLegacyVLLMCommand(cmd, containerImage string, requireContainer boo
 	if trimmed == "" || !strings.Contains(trimmed, "vllm_node") {
 		return cmd
 	}
+	// Managed vLLM cluster commands can include a conditional health probe:
+	// "docker exec vllm_node ray status". This is not a legacy hot-swap command
+	// and must not be rewritten to require a pre-existing running container.
+	if strings.Contains(trimmed, "docker exec vllm_node ray status") {
+		return cmd
+	}
 
 	rewritten := strings.ReplaceAll(trimmed, "docker exec -i vllm_node", "docker exec -i \"$VLLM_CONTAINER\"")
 	rewritten = strings.ReplaceAll(rewritten, "docker exec vllm_node", "docker exec \"$VLLM_CONTAINER\"")

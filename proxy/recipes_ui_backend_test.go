@@ -875,6 +875,40 @@ func TestProxyManager_NormalizeLegacyVLLMConfigCommands_FixesLegacySingleQuotedA
 	}
 }
 
+func TestProxyManager_NormalizeLegacyVLLMConfigCommands_DoesNotRewriteClusterResetProbe(t *testing.T) {
+	conf := config.Config{
+		Macros: config.MacroList{
+			{Name: "user_home", Value: "/home/tester"},
+		},
+		Models: map[string]config.ModelConfig{
+			"model-vllm": {
+				Cmd: `bash -lc 'if docker ps --format "{{.Names}}" | grep -q "^vllm_node$"; then if ! docker exec vllm_node ray status >/dev/null 2>&1; then (cd /tmp/backend && ./launch-cluster.sh -t vllm-node:latest stop >/dev/null 2>&1 || true); fi; fi; VLLM_SPARK_EXTRA_DOCKER_ARGS="-e FOO=bar" exec /tmp/run-recipe.sh sample -n 192.0.2.10,192.0.2.11 --tp 2 --port 6001'`,
+				Metadata: map[string]any{
+					recipeMetadataKey: map[string]any{
+						"backend_dir": "/tmp/backend/spark-vllm-docker",
+					},
+				},
+			},
+		},
+	}
+
+	got := normalizeLegacyVLLMConfigCommands(conf)
+	cmd := got.Models["model-vllm"].Cmd
+
+	if strings.Contains(cmd, "No running vLLM container found") {
+		t.Fatalf("cluster reset probe command must not be rewritten with VLLM guard: %s", cmd)
+	}
+	if strings.Contains(cmd, `VLLM_CONTAINER="$(`) {
+		t.Fatalf("cluster reset probe command must not be rewritten with container detection: %s", cmd)
+	}
+	if !strings.Contains(cmd, "docker exec vllm_node ray status") {
+		t.Fatalf("expected cluster reset probe to remain intact: %s", cmd)
+	}
+	if !strings.Contains(cmd, "-e FOO=bar") {
+		t.Fatalf("expected existing runtime cache args to be preserved: %s", cmd)
+	}
+}
+
 func TestProxyManager_UpsertRecipeModel_VLLMIncludesRuntimeCacheArgs(t *testing.T) {
 	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-vllm", "vllm")
 
