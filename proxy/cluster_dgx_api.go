@@ -22,6 +22,9 @@ const (
 	dgxDashboardDBusObject  = "/com/nvidia/dgx/dashboard/admin"
 	dgxDashboardDBusIface   = "com.nvidia.dgx.dashboard.admin1"
 	dgxUpdateActionTimeout  = 2 * time.Minute
+	dgxClusterReadTimeout   = 6 * time.Second
+	dgxStatusProbeTimeout   = 3 * time.Second
+	dgxStatusDetailTimeout  = 2 * time.Second
 )
 
 type clusterDGXUpdateRequest struct {
@@ -177,12 +180,15 @@ func queryNodeDGXStatus(parentCtx context.Context, host string, isLocal bool) *c
 		CheckedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 
-	availableRaw, availableErr := callNodeDGXDBusMethod(parentCtx, host, isLocal, "GetUpdatesAvailable", 20*time.Second)
+	availableRaw, availableErr := callNodeDGXDBusMethod(parentCtx, host, isLocal, "GetUpdatesAvailable", dgxStatusProbeTimeout)
 	if availableErr != nil {
+		if isDGXUnsupportedError(availableErr) {
+			return status
+		}
 		status.Error = availableErr.Error()
 		return status
 	}
-	available, parseErr := parseDBusBoolResult(availableRaw)
+	available, parseErr := parseDBusBoolResult(strings.TrimSpace(availableRaw))
 	if parseErr != nil {
 		status.Error = "GetUpdatesAvailable parse error: " + parseErr.Error()
 		return status
@@ -190,24 +196,24 @@ func queryNodeDGXStatus(parentCtx context.Context, host string, isLocal bool) *c
 	status.Supported = true
 	status.UpdateAvailable = &available
 
-	rebootRaw, rebootErr := callNodeDGXDBusMethod(parentCtx, host, isLocal, "IsUpdateRebootRunning", 10*time.Second)
+	rebootRaw, rebootErr := callNodeDGXDBusMethod(parentCtx, host, isLocal, "IsUpdateRebootRunning", dgxStatusDetailTimeout)
 	if rebootErr == nil {
-		if rebootRunning, err := parseDBusBoolResult(rebootRaw); err == nil {
+		if rebootRunning, err := parseDBusBoolResult(strings.TrimSpace(rebootRaw)); err == nil {
 			status.RebootRunning = &rebootRunning
 		}
 	}
 
-	upgradeRaw, upgradeErr := callNodeDGXDBusMethod(parentCtx, host, isLocal, "StatusUpgrade", 10*time.Second)
+	upgradeRaw, upgradeErr := callNodeDGXDBusMethod(parentCtx, host, isLocal, "StatusUpgrade", dgxStatusDetailTimeout)
 	if upgradeErr == nil {
-		if progress, state, err := parseDBusIntStringResult(upgradeRaw); err == nil {
+		if progress, state, err := parseDBusIntStringResult(strings.TrimSpace(upgradeRaw)); err == nil {
 			status.UpgradeProgress = &progress
 			status.UpgradeStatus = state
 		}
 	}
 
-	cacheRaw, cacheErr := callNodeDGXDBusMethod(parentCtx, host, isLocal, "StatusUpdateCache", 10*time.Second)
+	cacheRaw, cacheErr := callNodeDGXDBusMethod(parentCtx, host, isLocal, "StatusUpdateCache", dgxStatusDetailTimeout)
 	if cacheErr == nil {
-		if progress, state, err := parseDBusIntStringResult(cacheRaw); err == nil {
+		if progress, state, err := parseDBusIntStringResult(strings.TrimSpace(cacheRaw)); err == nil {
 			status.CacheProgress = &progress
 			status.CacheStatus = state
 		}
@@ -411,6 +417,35 @@ func parseDBusBoolResult(raw string) (bool, error) {
 		return false, fmt.Errorf("empty output")
 	}
 	return false, fmt.Errorf("unexpected format: %s", first)
+}
+
+func isDGXUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if msg == "" {
+		return false
+	}
+
+	for _, token := range []string{
+		"cluster shell timeout/canceled",
+		"context deadline exceeded",
+		"failed to connect to bus",
+		"no such file or directory",
+		"command not found",
+		"permission denied",
+		"sudo:",
+		"interactive authentication required",
+		"name has no owner",
+		"unknown object",
+		"unknown method",
+	} {
+		if strings.Contains(msg, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func localIPv4AddressSet() map[string]struct{} {

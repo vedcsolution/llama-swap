@@ -168,6 +168,7 @@ export interface RecipeManagedModel {
   group: string;
   unlisted?: boolean;
   managed: boolean;
+  hotSwap?: boolean;
   benchyTrustRemoteCode?: boolean;
   nonPrivileged?: boolean;
   memLimitGb?: number;
@@ -259,11 +260,27 @@ export interface RecipeBackendHFModel {
   path: string;
   sizeBytes: number;
   modifiedAt: string;
+  hasRecipe?: boolean;
+  existingRecipeRef?: string;
+  existingModelEntryId?: string;
 }
 
 export interface RecipeBackendHFModelsState {
   hubPath: string;
   models: RecipeBackendHFModel[];
+}
+
+export interface RecipeBackendHFRecipeResponse {
+  cacheDir: string;
+  modelId: string;
+  format: "gguf" | "safetensors" | string;
+  backendDir: string;
+  backendKind: RecipeBackendKind | string;
+  recipeRef: string;
+  recipePath: string;
+  modelEntryId: string;
+  createdRecipe: boolean;
+  message: string;
 }
 
 export interface RecipeBackendActionStatus {
@@ -352,6 +369,36 @@ export interface ConfigEditorState {
 
 export type ClusterOverallStatus = "healthy" | "degraded" | "solo" | "error";
 
+export interface ClusterNodeCPUStatus {
+  queriedAt: string;
+  usagePercent?: number;
+  error?: string;
+}
+
+export interface ClusterNodeDiskStatus {
+  queriedAt: string;
+  mount?: string;
+  totalMiB?: number;
+  usedMiB?: number;
+  freeMiB?: number;
+  usagePercent?: number;
+  error?: string;
+}
+
+export interface ClusterNodeGPUDevice {
+  index: number;
+  utilizationPct?: number;
+  totalMiB: number;
+  usedMiB: number;
+  freeMiB: number;
+}
+
+export interface ClusterNodeGPUStatus {
+  queriedAt: string;
+  devices?: ClusterNodeGPUDevice[];
+  error?: string;
+}
+
 export interface ClusterNodeStatus {
   ip: string;
   isLocal: boolean;
@@ -360,6 +407,9 @@ export interface ClusterNodeStatus {
   sshOk: boolean;
   sshLatencyMs?: number;
   error?: string;
+  cpu?: ClusterNodeCPUStatus;
+  disk?: ClusterNodeDiskStatus;
+  gpu?: ClusterNodeGPUStatus;
   dgx?: ClusterDGXStatus;
 }
 

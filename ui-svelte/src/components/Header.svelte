@@ -129,10 +129,10 @@
       Editor
     </a>
     <a
-      href="/help"
+      href="/credit"
       use:link
       class="text-gray-600 hover:text-black dark:text-gray-300 dark:hover:text-gray-100 p-1 whitespace-nowrap"
-      class:font-semibold={isActive("/help", $currentRoute)}
+      class:font-semibold={isActive("/credit", $currentRoute)}
     >
       Credits
     </a>

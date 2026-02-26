@@ -19,18 +19,24 @@
   import { isNarrow } from "../stores/theme";
   import { persistentStore } from "../stores/persistent";
   import { onMount, onDestroy } from "svelte";
-  import { basicSetup } from "codemirror";
-  import { yaml } from "@codemirror/lang-yaml";
-  import { Compartment, EditorState } from "@codemirror/state";
-  import { EditorView, keymap } from "@codemirror/view";
   import BenchyDialog from "./BenchyDialog.svelte";
   import type { BenchyJob, BenchyStartOptions, Model, RecipeManagedModel } from "../lib/types";
+
+  type CodeMirrorModules = {
+    basicSetup: typeof import("codemirror").basicSetup;
+    yaml: typeof import("@codemirror/lang-yaml").yaml;
+    EditorState: typeof import("@codemirror/state").EditorState;
+    Compartment: typeof import("@codemirror/state").Compartment;
+    EditorView: typeof import("@codemirror/view").EditorView;
+    keymap: typeof import("@codemirror/view").keymap;
+  };
 
   let isUnloading = $state(false);
   let isStoppingCluster = $state(false);
   let menuOpen = $state(false);
   let bulkActionError: string | null = $state(null);
   let bulkActionNotice: string | null = $state(null);
+  let stopClusterNoticeTimer: ReturnType<typeof setTimeout> | null = null;
   let recipeEditorModelId: string | null = $state(null);
   let recipeEditorRef = $state("");
   let recipeEditorPath = $state("");
@@ -43,11 +49,15 @@
   let recipeEditorNotice: string | null = $state(null);
   let recipeEditorController: AbortController | null = null;
   let recipeEditorHost = $state<HTMLDivElement | null>(null);
-  let recipeEditorView = $state<EditorView | null>(null);
+  let recipeEditorView = $state<any | null>(null);
   let recipeEditorSyncingFromView = false;
-  const recipeEditorEditableCompartment = new Compartment();
+  let recipeEditorEditableCompartment: any | null = null;
+  let codeMirrorModules: CodeMirrorModules | null = null;
+  let codeMirrorModulesPromise: Promise<CodeMirrorModules> | null = null;
+  let recipeEditorInitToken = 0;
   let recipeModelsById = $state<Record<string, RecipeManagedModel>>({});
   let clusterNodes = $state<string[]>([]);
+  let clusterNodesController: AbortController | null = null;
   let selectedInferenceNodeByModel = $state<Record<string, string>>({});
   let nodeApplyBusyByModel = $state<Record<string, boolean>>({});
   let recipeDeleteBusyByModel = $state<Record<string, boolean>>({});
@@ -121,6 +131,54 @@
       ...selectedInferenceNodeByModel,
       [modelID]: value,
     };
+  }
+
+  function collectRecipeNodes(recipeModels: RecipeManagedModel[]): string[] {
+    const nodes = new Set<string>();
+    for (const recipeModel of recipeModels) {
+      const raw = (recipeModel.nodes || "").trim();
+      if (!raw || raw.includes("${")) continue;
+      for (const node of raw.split(",")) {
+        const value = node.trim();
+        if (!value) continue;
+        if (value.includes(" ")) continue;
+        nodes.add(value);
+      }
+    }
+    return Array.from(nodes);
+  }
+
+  function mergeClusterNodes(nextNodes: string[]): void {
+    const merged = new Set<string>();
+    for (const node of clusterNodes) {
+      if (node) merged.add(node);
+    }
+    for (const node of nextNodes) {
+      if (node) merged.add(node);
+    }
+    clusterNodes = Array.from(merged);
+  }
+
+  async function refreshClusterNodesInBackground(timeoutMs = 2500): Promise<void> {
+    clusterNodesController?.abort();
+    const controller = new AbortController();
+    clusterNodesController = controller;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const next = await getClusterStatus(controller.signal);
+      if (clusterNodesController !== controller) return;
+      mergeClusterNodes((next.nodes || []).map((node) => node.ip).filter((ip) => !!ip));
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        console.error("Failed to fetch cluster nodes", err);
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (clusterNodesController === controller) {
+        clusterNodesController = null;
+      }
+    }
   }
 
   function slugifyRecipeRef(input: string): string {
@@ -270,36 +328,34 @@
   }
 
   async function refreshRecipeRuntimeState(): Promise<void> {
-    const [recipeResult, clusterResult] = await Promise.allSettled([getRecipeUIState(), getClusterStatus()]);
+    const recipeResult = await Promise.allSettled([getRecipeUIState()]);
 
-    if (recipeResult.status === "fulfilled") {
+    if (recipeResult[0].status === "fulfilled") {
       const byID: Record<string, RecipeManagedModel> = {};
       const selected: Record<string, string> = {};
-      for (const recipeModel of recipeResult.value.models || []) {
+      const recipeModels = recipeResult[0].value.models || [];
+      for (const recipeModel of recipeModels) {
         byID[recipeModel.modelId] = recipeModel;
         selected[recipeModel.modelId] = selectNodeFromRecipe(recipeModel);
       }
       recipeModelsById = byID;
       selectedInferenceNodeByModel = selected;
+      clusterNodes = collectRecipeNodes(recipeModels);
     } else {
-      console.error("Failed to fetch recipe state", recipeResult.reason);
+      console.error("Failed to fetch recipe state", recipeResult[0].reason);
       recipeModelsById = {};
       selectedInferenceNodeByModel = {};
-    }
-
-    if (clusterResult.status === "fulfilled") {
-      clusterNodes = (clusterResult.value.nodes || []).map((node) => node.ip).filter((ip) => !!ip);
-    } else {
-      console.error("Failed to fetch cluster nodes", clusterResult.reason);
       clusterNodes = [];
     }
+
+    void refreshClusterNodesInBackground();
   }
 
   function isClusterTensorParallel(recipe: RecipeManagedModel | undefined): boolean {
     if (!recipe) {
       return false;
     }
-    return recipe.mode === 'cluster' && (recipe.tensorParallel || 1) > 1;
+    return (recipe.tensorParallel || 1) > 1;
   }
 
   async function handleDeleteRecipe(model: Model): Promise<void> {
@@ -380,6 +436,7 @@
         containerImage: recipe.containerImage || '',
         group: recipe.group || 'managed-recipes',
         unlisted: !!recipe.unlisted,
+        hotSwap: !!recipe.hotSwap,
         nonPrivileged: !!recipe.nonPrivileged,
         memLimitGb: recipe.memLimitGb || 0,
         memSwapLimitGb: recipe.memSwapLimitGb || 0,
@@ -423,6 +480,12 @@
 
   onDestroy(() => {
     document.removeEventListener("click", handleClickOutside);
+    clusterNodesController?.abort();
+    clusterNodesController = null;
+    if (stopClusterNoticeTimer !== null) {
+      clearTimeout(stopClusterNoticeTimer);
+      stopClusterNoticeTimer = null;
+    }
     recipeEditorView?.destroy();
     recipeEditorView = null;
   });
@@ -446,12 +509,20 @@
     isStoppingCluster = true;
     bulkActionError = null;
     bulkActionNotice = null;
+    if (stopClusterNoticeTimer !== null) {
+      clearTimeout(stopClusterNoticeTimer);
+      stopClusterNoticeTimer = null;
+    }
     try {
       const result = await stopCluster();
       const summary = (result.message || "Stop Cluster completed").trim();
       const output = (result.output || "").trim();
       bulkActionNotice = output ? `${summary}
 ${output}` : summary;
+      stopClusterNoticeTimer = setTimeout(() => {
+        bulkActionNotice = null;
+        stopClusterNoticeTimer = null;
+      }, 2000);
     } catch (e) {
       console.error(e);
       bulkActionError = e instanceof Error ? e.message : String(e);
@@ -489,6 +560,27 @@ ${output}` : summary;
         insert: nextContent,
       },
     });
+  }
+
+  async function loadCodeMirrorModules(): Promise<CodeMirrorModules> {
+    if (codeMirrorModules) return codeMirrorModules;
+    if (!codeMirrorModulesPromise) {
+      codeMirrorModulesPromise = Promise.all([
+        import("codemirror"),
+        import("@codemirror/lang-yaml"),
+        import("@codemirror/state"),
+        import("@codemirror/view"),
+      ]).then(([codemirrorPkg, yamlPkg, statePkg, viewPkg]) => ({
+        basicSetup: codemirrorPkg.basicSetup,
+        yaml: yamlPkg.yaml,
+        EditorState: statePkg.EditorState,
+        Compartment: statePkg.Compartment,
+        EditorView: viewPkg.EditorView,
+        keymap: viewPkg.keymap,
+      }));
+    }
+    codeMirrorModules = await codeMirrorModulesPromise;
+    return codeMirrorModules;
   }
 
   function closeRecipeEditor(): void {
@@ -572,6 +664,7 @@ ${output}` : summary;
       recipeEditorOriginal = state.content || recipeEditorContent;
       recipeEditorUpdatedAt = state.updatedAt || "";
       recipeEditorNotice = "Recipe YAML guardada correctamente.";
+      await refreshRecipeRuntimeState();
     } catch (e) {
       recipeEditorError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -684,71 +777,96 @@ ${output}` : summary;
 
   $effect(() => {
     if (!recipeEditorHost) {
+      recipeEditorInitToken += 1;
       recipeEditorView?.destroy();
       recipeEditorView = null;
+      recipeEditorEditableCompartment = null;
       return;
     }
     if (recipeEditorView) return;
 
-    recipeEditorView = new EditorView({
-      parent: recipeEditorHost,
-      state: EditorState.create({
-        doc: recipeEditorContent,
-        extensions: [
-          basicSetup,
-          yaml(),
-          EditorView.lineWrapping,
-          recipeEditorEditableCompartment.of(EditorView.editable.of(!(recipeEditorLoading || recipeEditorSaving))),
-          keymap.of([
-            {
-              key: "Mod-s",
-              run: () => {
-                void saveRecipeEditor();
-                return true;
-              },
-            },
-          ]),
-          EditorView.updateListener.of((update) => {
-            if (!update.docChanged) return;
-            recipeEditorSyncingFromView = true;
-            recipeEditorContent = update.state.doc.toString();
-            recipeEditorSyncingFromView = false;
+    const host = recipeEditorHost;
+    const token = ++recipeEditorInitToken;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const modules = await loadCodeMirrorModules();
+        if (cancelled || token !== recipeEditorInitToken) return;
+        if (!recipeEditorHost || recipeEditorHost !== host || recipeEditorView) return;
+
+        const { basicSetup, yaml, EditorState, Compartment, EditorView, keymap } = modules;
+        recipeEditorEditableCompartment = new Compartment();
+
+        recipeEditorView = new EditorView({
+          parent: host,
+          state: EditorState.create({
+            doc: recipeEditorContent,
+            extensions: [
+              basicSetup,
+              yaml(),
+              EditorView.lineWrapping,
+              recipeEditorEditableCompartment.of(EditorView.editable.of(!(recipeEditorLoading || recipeEditorSaving))),
+              keymap.of([
+                {
+                  key: "Mod-s",
+                  run: () => {
+                    void saveRecipeEditor();
+                    return true;
+                  },
+                },
+              ]),
+              EditorView.updateListener.of((update) => {
+                if (!update.docChanged) return;
+                recipeEditorSyncingFromView = true;
+                recipeEditorContent = update.state.doc.toString();
+                recipeEditorSyncingFromView = false;
+              }),
+              EditorView.theme({
+                "&": {
+                  height: "100%",
+                  fontSize: "13px",
+                  fontFamily:
+                    '"JetBrains Mono","Fira Code","Cascadia Code",Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
+                  backgroundColor: "transparent",
+                },
+                "&.cm-focused": {
+                  outline: "none",
+                },
+                ".cm-scroller": {
+                  overflow: "auto",
+                  lineHeight: "1.5",
+                },
+                ".cm-content": {
+                  padding: "12px 0",
+                },
+                ".cm-line": {
+                  padding: "0 12px",
+                },
+                ".cm-gutters": {
+                  backgroundColor: "rgba(15, 23, 42, 0.35)",
+                  borderRight: "1px solid rgba(148, 163, 184, 0.2)",
+                },
+                ".cm-activeLine": {
+                  backgroundColor: "rgba(56, 189, 248, 0.08)",
+                },
+                ".cm-activeLineGutter": {
+                  backgroundColor: "rgba(56, 189, 248, 0.16)",
+                },
+              }),
+            ],
           }),
-          EditorView.theme({
-            "&": {
-              height: "100%",
-              fontSize: "13px",
-              fontFamily:
-                '"JetBrains Mono","Fira Code","Cascadia Code",Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
-              backgroundColor: "transparent",
-            },
-            "&.cm-focused": {
-              outline: "none",
-            },
-            ".cm-scroller": {
-              overflow: "auto",
-              lineHeight: "1.5",
-            },
-            ".cm-content": {
-              padding: "12px 0",
-            },
-            ".cm-line": {
-              padding: "0 12px",
-            },
-            ".cm-gutters": {
-              backgroundColor: "rgba(15, 23, 42, 0.35)",
-              borderRight: "1px solid rgba(148, 163, 184, 0.2)",
-            },
-            ".cm-activeLine": {
-              backgroundColor: "rgba(56, 189, 248, 0.08)",
-            },
-            ".cm-activeLineGutter": {
-              backgroundColor: "rgba(56, 189, 248, 0.16)",
-            },
-          }),
-        ],
-      }),
-    });
+        });
+      } catch (err) {
+        if (!cancelled) {
+          recipeEditorError = err instanceof Error ? err.message : String(err);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   });
 
   $effect(() => {
@@ -756,7 +874,8 @@ ${output}` : summary;
   });
 
   $effect(() => {
-    if (!recipeEditorView) return;
+    if (!recipeEditorView || !recipeEditorEditableCompartment || !codeMirrorModules) return;
+    const { EditorView } = codeMirrorModules;
     recipeEditorView.dispatch({
       effects: recipeEditorEditableCompartment.reconfigure(EditorView.editable.of(!(recipeEditorLoading || recipeEditorSaving))),
     });

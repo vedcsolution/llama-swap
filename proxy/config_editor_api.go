@@ -59,7 +59,7 @@ func (pm *ProxyManager) apiSaveConfigEditor(c *gin.Context) {
 		return
 	}
 
-	pm.applyConfigAndSyncProcessGroups(parsedConfig)
+	pm.applyConfigAndSyncProcessGroups(normalizeLegacyVLLMConfigCommands(parsedConfig))
 
 	// Notify UI subscribers that config-backed model state changed.
 	event.Emit(ConfigFileChangedEvent{ReloadingState: ReloadingStateEnd})

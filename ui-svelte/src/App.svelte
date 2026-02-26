@@ -24,7 +24,7 @@
     "/logs": LogViewer,
     "/cluster": ClusterStatus,
     "/editor": ConfigEditor,
-    "/help": Help,
+    "/credit": Help,
     "/activity": Activity,
     "*": PlaygroundStub,
   };

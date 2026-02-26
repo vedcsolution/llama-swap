@@ -108,7 +108,7 @@
     }
   }
 
-  async function refresh(): Promise<void> {
+  async function refresh(forceRefresh = false): Promise<void> {
     refreshing = true;
     error = null;
     notice = null;
@@ -117,7 +117,7 @@
     try {
       const [backendState, imagesState] = await Promise.all([
         getRecipeBackendState(),
-        getDockerImages(),
+        getDockerImages(forceRefresh),
       ]);
       state = backendState;
       dockerImages = imagesState.images || [];
@@ -177,7 +177,7 @@
       };
       actionCommand = result.command || "";
       actionOutput = result.output || "";
-      await refresh();
+      await refresh(true);
       notice = successMessage;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -204,7 +204,7 @@
       const successMessage = result.message || `Imagen actualizada en ${result.nodeIp}`;
       actionCommand = result.command || "";
       actionOutput = result.output || "";
-      await refresh();
+      await refresh(true);
       notice = successMessage;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -221,8 +221,6 @@
       error = "No se encontró ID o referencia para borrar la imagen.";
       return;
     }
-    const confirmed = confirm(`Eliminar imagen en ${node.nodeIp}: ${image.reference}?`);
-    if (!confirmed) return;
 
     imageActionRunning = imageActionKey("delete", node.nodeIp, image);
     error = null;
@@ -234,7 +232,7 @@
       const successMessage = result.message || `Imagen eliminada en ${result.nodeIp}`;
       actionCommand = result.command || "";
       actionOutput = result.output || "";
-      await refresh();
+      await refresh(true);
       notice = successMessage;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -261,7 +259,7 @@
   <div class="card shrink-0">
     <div class="flex items-center justify-between gap-2">
       <h2 class="pb-0">Images</h2>
-      <button class="btn btn--sm" onclick={refresh} disabled={refreshing || !!actionRunning || !!imageActionRunning}>
+      <button class="btn btn--sm" onclick={() => refresh(true)} disabled={refreshing || !!actionRunning || !!imageActionRunning}>
         {refreshing ? "Refreshing..." : "Refresh"}
       </button>
     </div>
@@ -370,9 +368,9 @@
         </div>
       {/if}
     {:else}
-      <div class="space-y-3">
+      <div class="grid gap-3 xl:grid-cols-2">
         {#each nodeImages as node (node.nodeIp)}
-          <div class="p-2 border border-card-border rounded bg-background/30">
+          <div class="p-2 border border-card-border rounded bg-background/30 flex flex-col min-h-0">
             <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
               <div class="text-sm font-mono text-txtmain break-all">
                 {node.nodeIp}{node.isLocal ? " (local)" : ""}
@@ -385,7 +383,7 @@
             {:else if node.images.length === 0}
               <div class="text-xs text-txtsecondary">No hay imágenes en este nodo.</div>
             {:else}
-              <div class="space-y-2 pr-1">
+              <div class="space-y-2 pr-1 max-h-[24rem] overflow-auto">
                 {#each node.images as image (node.nodeIp + image.id + image.reference)}
                   <div class="p-2 border border-card-border rounded bg-background/40">
                     <div class="text-sm font-mono text-txtmain break-all">{image.reference}</div>

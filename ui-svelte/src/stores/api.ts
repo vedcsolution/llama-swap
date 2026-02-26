@@ -14,6 +14,7 @@ import type {
   RecipeBackendActionResponse,
   RecipeBackendActionStatus,
   RecipeBackendHFModelsState,
+  RecipeBackendHFRecipeResponse,
   DockerImagesState,
   DockerImageActionResponse,
   RecipeUIState,
@@ -69,7 +70,6 @@ export function enableAPIEvents(enabled: boolean): void {
       proxyLogs.set("");
       upstreamLogs.set("");
       metrics.set([]);
-      models.set([]);
       retryCount = 0;
       connectionState.set("connected");
     };
@@ -216,12 +216,18 @@ export async function unloadSingleModel(model: string): Promise<void> {
 
 export async function loadModel(model: string): Promise<void> {
   try {
-    const response = await fetch(`/upstream/${model}/`, {
-      method: "GET",
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to load model: ${response.status}`);
+    const probes = [`/upstream/${model}/v1/models`, `/upstream/${model}/health`, `/upstream/${model}/`];
+    let lastStatus = 0;
+
+    for (const url of probes) {
+      const response = await fetch(url, { method: "GET" });
+      lastStatus = response.status;
+      if (response.ok) {
+        return;
+      }
     }
+
+    throw new Error(`Failed to load model: ${lastStatus}`);
   } catch (error) {
     console.error("Failed to load model:", error);
     throw error;
@@ -409,6 +415,21 @@ export async function deleteRecipeBackendHFModel(cacheDir: string): Promise<Reci
   return (await response.json()) as RecipeBackendHFModelsState;
 }
 
+export async function generateRecipeBackendHFModel(cacheDir: string): Promise<RecipeBackendHFRecipeResponse> {
+  const response = await fetch(`/api/recipes/backend/hf-models/recipe`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ cacheDir }),
+  });
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to generate recipe from HF model: ${response.status}`);
+  }
+  return (await response.json()) as RecipeBackendHFRecipeResponse;
+}
+
 export async function upsertRecipeModel(payload: RecipeUpsertRequest): Promise<RecipeUIState> {
   const response = await fetch(`/api/recipes/models`, {
     method: "POST",
@@ -526,8 +547,9 @@ export async function getDockerContainers(): Promise<string[]> {
   return await response.json();
 }
 
-export async function getDockerImages(): Promise<DockerImagesState> {
-  const response = await fetch("/api/images/docker");
+export async function getDockerImages(forceRefresh = false): Promise<DockerImagesState> {
+  const endpoint = forceRefresh ? "/api/images/docker?force=1" : "/api/images/docker";
+  const response = await fetch(endpoint);
   if (!response.ok) {
     const msg = await response.text().catch(() => "");
     throw new Error(msg || `Failed to fetch docker images: ${response.status}`);
@@ -593,8 +615,9 @@ export async function setSelectedContainer(container: string): Promise<string> {
   return data.selectedContainer;
 }
 
-export async function getClusterStatus(signal?: AbortSignal): Promise<ClusterStatusState> {
-  const response = await fetch(`/api/cluster/status`, { signal });
+export async function getClusterStatus(signal?: AbortSignal, forceRefresh = false): Promise<ClusterStatusState> {
+  const endpoint = forceRefresh ? "/api/cluster/status?force=1" : "/api/cluster/status";
+  const response = await fetch(endpoint, { signal });
   if (!response.ok) {
     const msg = await response.text().catch(() => "");
     throw new Error(msg || `Failed to fetch cluster status: ${response.status}`);

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import {
     deleteRecipeBackendHFModel,
+    generateRecipeBackendHFModel,
     getRecipeBackendActionStatus,
     getRecipeBackendHFModels,
     getRecipeBackendState,
@@ -30,6 +31,7 @@
 
   let hfModelsLoading = false;
   let deletingHFModel = "";
+  let generatingHFModel = "";
   let hfHubPath = "";
   let hfHubPathInput = "";
   let savingHFHubPath = false;
@@ -48,6 +50,14 @@
 
   function isDownloadBusy(): boolean {
     return downloadSubmitting || isBackendActionRunning("download_hf_model");
+  }
+
+  function isHFModelActionDisabled(): boolean {
+    return !!deletingHFModel || !!generatingHFModel || savingHFHubPath || isBackendActionRunning("download_hf_model");
+  }
+
+  function hasExistingHFRecipe(model: RecipeBackendHFModel): boolean {
+    return !!model.hasRecipe;
   }
 
   function runningLabel(action: string): string {
@@ -180,7 +190,6 @@
   async function deleteHFModel(model: RecipeBackendHFModel): Promise<void> {
     if (deletingHFModel) return;
     const target = model.modelId || model.cacheDir;
-    if (!confirm(`Eliminar modelo descargado ${target}?`)) return;
 
     deletingHFModel = model.cacheDir;
     error = null;
@@ -192,9 +201,41 @@
       hfModels = next.models || [];
       notice = `Modelo eliminado: ${target}`;
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      await refreshHFModels();
+      const stillExists = hfModels.some((item) => item.cacheDir === model.cacheDir);
+      if (stillExists) {
+        error = msg;
+      } else {
+        notice = `Modelo eliminado localmente: ${target}. Verifica nodos remotos si aplica.`;
+        error = msg;
+      }
     } finally {
       deletingHFModel = "";
+    }
+  }
+
+  async function generateHFRecipe(model: RecipeBackendHFModel): Promise<void> {
+    if (hasExistingHFRecipe(model)) {
+      notice = `El modelo ${model.modelId || model.cacheDir} ya tiene receta (${model.existingRecipeRef || "asociada"}).`;
+      error = null;
+      return;
+    }
+    if (isHFModelActionDisabled()) return;
+
+    generatingHFModel = model.cacheDir;
+    error = null;
+    notice = null;
+    try {
+      const result = await generateRecipeBackendHFModel(model.cacheDir);
+      const action = result.createdRecipe ? "creada" : "reutilizada";
+      notice = `Receta ${action}: ${result.recipeRef} (${result.format}) y modelo añadido en config.yaml como ${result.modelEntryId}.`;
+      await refreshHFModels();
+      await refreshBackendActionStatus();
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    } finally {
+      generatingHFModel = "";
     }
   }
 
@@ -282,7 +323,7 @@
         </label>
       </div>
 
-      <button class="btn btn--sm" onclick={runDownload} disabled={isBackendActionRunning("download_hf_model") || !!deletingHFModel || savingHFHubPath}>
+      <button class="btn btn--sm" onclick={runDownload} disabled={isBackendActionRunning("download_hf_model") || !!deletingHFModel || !!generatingHFModel || savingHFHubPath}>
         {isDownloadBusy() ? runningLabel("download_hf_model") : (hfDownloadAction(state)?.label || "Download HF Model")}
       </button>
       <div class="text-xs text-txtsecondary break-all">
@@ -333,10 +374,10 @@
     <div class="text-xs text-txtsecondary">Ruta del hub</div>
     <div class="flex flex-col md:flex-row gap-2">
       <input class="input w-full font-mono text-sm" bind:value={hfHubPathInput} placeholder="~/.cache/huggingface/hub" />
-      <button class="btn btn--sm" onclick={saveHFHubPath} disabled={savingHFHubPath || hfModelsLoading || !!deletingHFModel || isBackendActionRunning("download_hf_model")}>
+      <button class="btn btn--sm" onclick={saveHFHubPath} disabled={savingHFHubPath || hfModelsLoading || !!deletingHFModel || !!generatingHFModel || isBackendActionRunning("download_hf_model")}>
         {savingHFHubPath ? "Guardando..." : "Guardar ruta"}
       </button>
-      <button class="btn btn--sm" onclick={resetHFHubPath} disabled={savingHFHubPath || hfModelsLoading || !!deletingHFModel || isBackendActionRunning("download_hf_model")}>
+      <button class="btn btn--sm" onclick={resetHFHubPath} disabled={savingHFHubPath || hfModelsLoading || !!deletingHFModel || !!generatingHFModel || isBackendActionRunning("download_hf_model")}>
         Restablecer
       </button>
     </div>
@@ -355,8 +396,27 @@
             <div class="text-sm font-mono text-txtmain break-all">{model.modelId || model.cacheDir}</div>
             <div class="text-xs text-txtsecondary break-all">{collapseHomePath(model.path)}</div>
             <div class="text-xs text-txtsecondary">Tamaño: {formatBytes(model.sizeBytes)} | Actualizado: {model.modifiedAt}</div>
-            <div class="mt-2">
-              <button class="btn btn--sm" onclick={() => deleteHFModel(model)} disabled={!!deletingHFModel || savingHFHubPath} title={`Eliminar ${model.modelId || model.cacheDir}`}>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <button
+                class="btn btn--sm"
+                onclick={() => generateHFRecipe(model)}
+                disabled={isHFModelActionDisabled() || hasExistingHFRecipe(model)}
+                title={hasExistingHFRecipe(model)
+                  ? `Receta existente: ${model.existingRecipeRef || "asociada"}`
+                  : `Generar receta para ${model.modelId || model.cacheDir}`}
+              >
+                {generatingHFModel === model.cacheDir
+                  ? "Generando..."
+                  : hasExistingHFRecipe(model)
+                    ? "Receta creada"
+                    : "Generar receta"}
+              </button>
+              <button
+                class="btn btn--sm"
+                onclick={() => deleteHFModel(model)}
+                disabled={isHFModelActionDisabled()}
+                title={`Eliminar ${model.modelId || model.cacheDir}`}
+              >
                 {deletingHFModel === model.cacheDir ? "Eliminando..." : "Eliminar"}
               </button>
             </div>

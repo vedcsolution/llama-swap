@@ -54,6 +54,7 @@ func addApiHandlers(pm *ProxyManager) {
 		apiGroup.GET("/recipes/backend/hf-models", pm.apiListRecipeBackendHFModels)
 		apiGroup.PUT("/recipes/backend/hf-models/path", pm.apiSetRecipeBackendHFHubPath)
 		apiGroup.DELETE("/recipes/backend/hf-models", pm.apiDeleteRecipeBackendHFModel)
+		apiGroup.POST("/recipes/backend/hf-models/recipe", pm.apiGenerateRecipeBackendHFModel)
 		apiGroup.POST("/recipes/models", pm.apiUpsertRecipeModel)
 		apiGroup.DELETE("/recipes/models/:id", pm.apiDeleteRecipeModel)
 		apiGroup.GET("/recipes/source", pm.apiGetRecipeSource)
@@ -563,11 +564,11 @@ func (pm *ProxyManager) apiSendEvents(c *gin.Context) {
 		sendMetrics([]TokenMetrics{e.Metrics})
 	})()
 
-	// send initial batch of data
-	sendLogData("proxy", pm.proxyLogger.GetHistory())
-	sendLogData("upstream", pm.upstreamLogger.GetHistory())
+	// send initial batch of data (prioritize model status for faster UI paint)
 	sendModels()
 	sendMetrics(pm.metricsMonitor.getMetrics())
+	sendLogData("proxy", pm.proxyLogger.GetHistory())
+	sendLogData("upstream", pm.upstreamLogger.GetHistory())
 
 	for {
 		select {

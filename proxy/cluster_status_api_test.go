@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -71,5 +73,80 @@ func TestAPIGetClusterStatus_ErrorPayloadOmitsBackendDir(t *testing.T) {
 	}
 	if _, ok := payload["autodiscoverPath"]; !ok {
 		t.Fatalf("autodiscoverPath missing in error payload: %v", payload)
+	}
+}
+
+func TestProxyManager_ClusterStatusCache_ReusesFreshValue(t *testing.T) {
+	t.Setenv(clusterStatusCacheTTLEnv, "60")
+	pm := &ProxyManager{}
+	calls := 0
+	loader := func(_ context.Context) (clusterStatusState, error) {
+		calls++
+		return clusterStatusState{DetectedAt: fmt.Sprintf("call-%d", calls)}, nil
+	}
+
+	first, err := pm.readClusterStatusCachedWithLoader(context.Background(), false, loader)
+	if err != nil {
+		t.Fatalf("first readClusterStatusCachedWithLoader error: %v", err)
+	}
+	second, err := pm.readClusterStatusCachedWithLoader(context.Background(), false, loader)
+	if err != nil {
+		t.Fatalf("second readClusterStatusCachedWithLoader error: %v", err)
+	}
+
+	if calls != 1 {
+		t.Fatalf("loader calls = %d, want 1", calls)
+	}
+	if first.DetectedAt != second.DetectedAt {
+		t.Fatalf("cached detectedAt mismatch: first=%q second=%q", first.DetectedAt, second.DetectedAt)
+	}
+}
+
+func TestProxyManager_ClusterStatusCache_ForceRefreshBypassesCache(t *testing.T) {
+	t.Setenv(clusterStatusCacheTTLEnv, "60")
+	pm := &ProxyManager{}
+	calls := 0
+	loader := func(_ context.Context) (clusterStatusState, error) {
+		calls++
+		return clusterStatusState{DetectedAt: fmt.Sprintf("call-%d", calls)}, nil
+	}
+
+	first, err := pm.readClusterStatusCachedWithLoader(context.Background(), false, loader)
+	if err != nil {
+		t.Fatalf("first readClusterStatusCachedWithLoader error: %v", err)
+	}
+	second, err := pm.readClusterStatusCachedWithLoader(context.Background(), true, loader)
+	if err != nil {
+		t.Fatalf("forced readClusterStatusCachedWithLoader error: %v", err)
+	}
+
+	if calls != 2 {
+		t.Fatalf("loader calls = %d, want 2", calls)
+	}
+	if first.DetectedAt == second.DetectedAt {
+		t.Fatalf("expected force refresh to replace cache, got same detectedAt=%q", first.DetectedAt)
+	}
+}
+
+func TestProxyManager_ClusterStatusCache_DisabledWhenTTLZero(t *testing.T) {
+	t.Setenv(clusterStatusCacheTTLEnv, "0")
+	pm := &ProxyManager{}
+	calls := 0
+	loader := func(_ context.Context) (clusterStatusState, error) {
+		calls++
+		return clusterStatusState{DetectedAt: fmt.Sprintf("call-%d", calls)}, nil
+	}
+
+	_, err := pm.readClusterStatusCachedWithLoader(context.Background(), false, loader)
+	if err != nil {
+		t.Fatalf("first readClusterStatusCachedWithLoader error: %v", err)
+	}
+	_, err = pm.readClusterStatusCachedWithLoader(context.Background(), false, loader)
+	if err != nil {
+		t.Fatalf("second readClusterStatusCachedWithLoader error: %v", err)
+	}
+
+	if calls != 2 {
+		t.Fatalf("loader calls = %d, want 2 when cache disabled", calls)
 	}
 }

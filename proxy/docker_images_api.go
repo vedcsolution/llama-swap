@@ -62,24 +62,84 @@ type dockerImageActionResponse struct {
 }
 
 const dockerImagesListScript = "docker images --no-trunc --format \"{{json .}}\""
+const dockerImagesCacheTTL = 2 * time.Minute
+
+var dockerImagesCache = struct {
+	mu        sync.RWMutex
+	updatedAt time.Time
+	response  dockerImagesResponse
+	valid     bool
+}{}
+
+func loadDockerImagesCache(now time.Time) (dockerImagesResponse, bool) {
+	dockerImagesCache.mu.RLock()
+	defer dockerImagesCache.mu.RUnlock()
+	if !dockerImagesCache.valid {
+		return dockerImagesResponse{}, false
+	}
+	if now.Sub(dockerImagesCache.updatedAt) > dockerImagesCacheTTL {
+		return dockerImagesResponse{}, false
+	}
+	return dockerImagesCache.response, true
+}
+
+func storeDockerImagesCache(resp dockerImagesResponse, now time.Time) {
+	dockerImagesCache.mu.Lock()
+	dockerImagesCache.response = resp
+	dockerImagesCache.updatedAt = now
+	dockerImagesCache.valid = true
+	dockerImagesCache.mu.Unlock()
+}
 
 func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
+	now := time.Now()
+	forceRefresh := strings.TrimSpace(c.Query("force")) == "1"
+	if !forceRefresh {
+		if cached, ok := loadDockerImagesCache(now); ok {
+			c.JSON(http.StatusOK, cached)
+			return
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 55*time.Second)
 	defer cancel()
 
-	localImages, localErr := dockerImagesForNode(ctx, "127.0.0.1", true, 18*time.Second)
-	if localErr != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": localErr.Error()})
-		return
+	type localFetchResult struct {
+		images []dockerImageInfo
+		err    error
+	}
+	type discoverResult struct {
+		nodes   []string
+		localIP string
+		err     error
 	}
 
-	nodes, localIP, discoverErr := discoverClusterNodeIPs(ctx)
-	if discoverErr != nil {
-		nodeIP := strings.TrimSpace(localIP)
+	localImagesCh := make(chan localFetchResult, 1)
+	discoverCh := make(chan discoverResult, 1)
+
+	go func() {
+		images, err := dockerImagesForNode(ctx, "127.0.0.1", true, 18*time.Second)
+		localImagesCh <- localFetchResult{images: images, err: err}
+	}()
+	go func() {
+		nodes, localIP, err := discoverClusterNodeIPs(ctx)
+		discoverCh <- discoverResult{nodes: nodes, localIP: strings.TrimSpace(localIP), err: err}
+	}()
+
+	localFetch := <-localImagesCh
+	if localFetch.err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": localFetch.err.Error()})
+		return
+	}
+	localImages := localFetch.images
+
+	discovery := <-discoverCh
+	if discovery.err != nil {
+		nodeIP := strings.TrimSpace(discovery.localIP)
 		if nodeIP == "" {
 			nodeIP = "127.0.0.1"
 		}
-		c.JSON(http.StatusOK, dockerImagesResponse{
+		resp := dockerImagesResponse{
 			Images: localImages,
 			Nodes: []dockerNodeImages{
 				{
@@ -88,18 +148,20 @@ func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
 					Images:  localImages,
 				},
 			},
-			DiscoveryError: discoverErr.Error(),
-		})
+			DiscoveryError: discovery.err.Error(),
+		}
+		storeDockerImagesCache(resp, now)
+		c.JSON(http.StatusOK, resp)
 		return
 	}
 
-	nodes = uniqueNonEmptyStrings(nodes)
+	nodes := uniqueNonEmptyStrings(discovery.nodes)
 	if len(nodes) == 0 {
-		nodeIP := strings.TrimSpace(localIP)
+		nodeIP := strings.TrimSpace(discovery.localIP)
 		if nodeIP == "" {
 			nodeIP = "127.0.0.1"
 		}
-		c.JSON(http.StatusOK, dockerImagesResponse{
+		resp := dockerImagesResponse{
 			Images: localImages,
 			Nodes: []dockerNodeImages{
 				{
@@ -108,11 +170,16 @@ func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
 					Images:  localImages,
 				},
 			},
-		})
+		}
+		storeDockerImagesCache(resp, now)
+		c.JSON(http.StatusOK, resp)
 		return
 	}
 
 	localIPs := localIPv4AddressSet()
+	if discovery.localIP != "" {
+		localIPs[discovery.localIP] = struct{}{}
+	}
 	results := make([]dockerNodeImages, len(nodes))
 	var wg sync.WaitGroup
 
@@ -122,16 +189,24 @@ func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
 		if host == "" {
 			continue
 		}
-		isLocal := host == strings.TrimSpace(localIP) || isKnownLocalIP(localIPs, host)
+		isLocal := host == discovery.localIP || isKnownLocalIP(localIPs, host)
+		if isLocal {
+			results[idx] = dockerNodeImages{
+				NodeIP:  host,
+				IsLocal: true,
+				Images:  localImages,
+			}
+			continue
+		}
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			result := dockerNodeImages{
 				NodeIP:  host,
-				IsLocal: isLocal,
+				IsLocal: false,
 			}
-			images, err := dockerImagesForNode(ctx, host, isLocal, 20*time.Second)
+			images, err := dockerImagesForNode(ctx, host, false, 20*time.Second)
 			if err != nil {
 				result.Error = err.Error()
 			} else {
@@ -145,10 +220,12 @@ func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
 	results = compactDockerNodeImages(results)
 	sortDockerNodeImages(results)
 
-	c.JSON(http.StatusOK, dockerImagesResponse{
+	resp := dockerImagesResponse{
 		Images: pickLocalDockerImages(results, localImages),
 		Nodes:  results,
-	})
+	}
+	storeDockerImagesCache(resp, now)
+	c.JSON(http.StatusOK, resp)
 }
 
 func (pm *ProxyManager) apiUpdateDockerImage(c *gin.Context) {

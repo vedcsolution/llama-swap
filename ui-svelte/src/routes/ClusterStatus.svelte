@@ -79,7 +79,87 @@
     }
   }
 
-  async function refresh(): Promise<void> {
+  type NodeMetricSummary = {
+    percent: number | null;
+    label: string;
+    error?: string;
+  };
+
+  function clampPercent(value?: number | null): number {
+    if (value == null || Number.isNaN(value)) return 0;
+    if (value < 0) return 0;
+    if (value > 100) return 100;
+    return value;
+  }
+
+  function formatMiB(value?: number): string {
+    if (value == null || value < 0) return "-";
+    const gib = value / 1024;
+    if (gib >= 100) return `${Math.round(gib)} GiB`;
+    if (gib >= 10) return `${gib.toFixed(1)} GiB`;
+    return `${gib.toFixed(2)} GiB`;
+  }
+
+  function buildCpuSummary(node: ClusterStatusState["nodes"][number]): NodeMetricSummary {
+    if (node.cpu?.error) {
+      return { percent: null, label: "-", error: node.cpu.error };
+    }
+    const usage = node.cpu?.usagePercent;
+    if (usage == null) {
+      return { percent: null, label: "-" };
+    }
+    return { percent: usage, label: `${usage}%` };
+  }
+
+  function buildDiskSummary(node: ClusterStatusState["nodes"][number]): NodeMetricSummary {
+    if (node.disk?.error) {
+      return { percent: null, label: "-", error: node.disk.error };
+    }
+    const usage = node.disk?.usagePercent;
+    const used = formatMiB(node.disk?.usedMiB);
+    const total = formatMiB(node.disk?.totalMiB);
+    if (usage == null) {
+      return { percent: null, label: `${used} / ${total}` };
+    }
+    return { percent: usage, label: `${usage}% (${used} / ${total})` };
+  }
+
+  function buildGpuUtilSummary(node: ClusterStatusState["nodes"][number]): NodeMetricSummary {
+    if (node.gpu?.error) {
+      return { percent: null, label: "-", error: node.gpu.error };
+    }
+    const devices = node.gpu?.devices || [];
+    if (devices.length === 0) {
+      return { percent: null, label: "sin GPU" };
+    }
+    const utils = (node.gpu?.devices || [])
+      .map((device) => device.utilizationPct)
+      .filter((value): value is number => value != null);
+    if (utils.length === 0) {
+      return { percent: null, label: `N/A (${devices.length} GPU)` };
+    }
+    const avg = Math.round(utils.reduce((sum, current) => sum + current, 0) / utils.length);
+    return { percent: avg, label: `${avg}% (${utils.length} GPU)` };
+  }
+
+  function buildVramSummary(node: ClusterStatusState["nodes"][number]): NodeMetricSummary {
+    if (node.gpu?.error) {
+      return { percent: null, label: "-", error: node.gpu.error };
+    }
+    const devices = node.gpu?.devices || [];
+    if (devices.length === 0) {
+      return { percent: null, label: "sin GPU" };
+    }
+    const totalMiB = devices.reduce((sum, device) => sum + (device.totalMiB || 0), 0);
+    const usedMiB = devices.reduce((sum, device) => sum + (device.usedMiB || 0), 0);
+    if (totalMiB <= 0) {
+      return { percent: null, label: `N/A (${devices.length} GPU)` };
+    }
+    const usage = Math.round((usedMiB / totalMiB) * 100);
+    return { percent: usage, label: `${usage}% (${formatMiB(usedMiB)} / ${formatMiB(totalMiB)})` };
+  }
+
+  async function refresh(forceRefresh = false): Promise<void> {
     refreshController?.abort();
     const controller = new AbortController();
     refreshController = controller;
@@ -89,7 +169,7 @@
     error = null;
     if (!state) loading = true;
     try {
-      state = await getClusterStatus(controller.signal);
+      state = await getClusterStatus(controller.signal, forceRefresh);
     } catch (e) {
       if (controller.signal.aborted) {
         error = "Timeout al consultar el estado del cluster. Pulsa Refresh para reintentar.";
@@ -123,7 +203,7 @@
       const result = await runClusterDGXUpdate(targets);
       const lines = result.results.map((r) => `${r.ip}: ${r.ok ? "OK" : `FAIL (${r.error || "unknown"})`}`);
       dgxActionResult = `DGX update lanzado. OK=${result.success}, FAIL=${result.failed}\n${lines.join("\n")}`;
-      await refresh();
+      await refresh(true);
     } catch (e) {
       dgxActionError = e instanceof Error ? e.message : String(e);
       dgxActionResult = null;
@@ -168,7 +248,7 @@
   }
 
   onMount(() => {
-    void refresh();
+    void refresh(false);
     return () => {
       refreshController?.abort();
     };
@@ -183,7 +263,7 @@
         <button class="btn btn--sm" onclick={runDgxUpdate} disabled={dgxUpdating || !state || !hasUpdatableDGXNodes()}>
           {dgxUpdating ? "Updating..." : (dgxUpdateConfirmKey ? "Confirm Update Nodes" : "Update Nodes")}
         </button>
-        <button class="btn btn--sm" onclick={refresh} disabled={refreshing}>
+        <button class="btn btn--sm" onclick={() => refresh(true)} disabled={refreshing}>
           {refreshing ? "Refreshing..." : "Refresh"}
         </button>
       </div>
@@ -238,6 +318,78 @@
           <div>Total: {state.nodeCount}</div>
           <div>Remotos: {state.remoteCount}</div>
           <div>SSH OK: {state.reachableBySsh}</div>
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <div class="text-sm font-semibold text-txtmain">Recursos por nodo</div>
+        <div class="mt-2 grid grid-cols-1 xl:grid-cols-2 gap-2">
+          {#each state.nodes as node}
+            {@const cpu = buildCpuSummary(node)}
+            {@const disk = buildDiskSummary(node)}
+            {@const gpuUtil = buildGpuUtilSummary(node)}
+            {@const vram = buildVramSummary(node)}
+            <div class="rounded border border-card-border p-3 bg-background/40">
+              <div class="flex items-center justify-between gap-2">
+                <div class="font-mono text-sm">{node.ip}</div>
+                <div class="text-xs text-txtsecondary">{node.isLocal ? "local" : "remote"}</div>
+              </div>
+              <div class="mt-3 space-y-3">
+                <div class="text-xs">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-txtsecondary uppercase">CPU</span>
+                    <span class="text-txtmain">{cpu.label}</span>
+                  </div>
+                  {#if cpu.error}
+                    <div class="text-error mt-1">{cpu.error}</div>
+                  {:else}
+                    <div class="mt-1 h-2 rounded bg-surface border border-card-border overflow-hidden">
+                      <div class="h-full bg-gradient-to-r from-cyan-500 to-sky-400" style={`width: ${clampPercent(cpu.percent)}%`}></div>
+                    </div>
+                  {/if}
+                </div>
+                <div class="text-xs">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-txtsecondary uppercase">DISCO /</span>
+                    <span class="text-txtmain">{disk.label}</span>
+                  </div>
+                  {#if disk.error}
+                    <div class="text-error mt-1">{disk.error}</div>
+                  {:else}
+                    <div class="mt-1 h-2 rounded bg-surface border border-card-border overflow-hidden">
+                      <div class="h-full bg-gradient-to-r from-emerald-500 to-lime-400" style={`width: ${clampPercent(disk.percent)}%`}></div>
+                    </div>
+                  {/if}
+                </div>
+                <div class="text-xs">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-txtsecondary uppercase">GPU UTIL</span>
+                    <span class="text-txtmain">{gpuUtil.label}</span>
+                  </div>
+                  {#if gpuUtil.error}
+                    <div class="text-error mt-1">{gpuUtil.error}</div>
+                  {:else}
+                    <div class="mt-1 h-2 rounded bg-surface border border-card-border overflow-hidden">
+                      <div class="h-full bg-gradient-to-r from-violet-500 to-fuchsia-400" style={`width: ${clampPercent(gpuUtil.percent)}%`}></div>
+                    </div>
+                  {/if}
+                </div>
+                <div class="text-xs">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-txtsecondary uppercase">VRAM</span>
+                    <span class="text-txtmain">{vram.label}</span>
+                  </div>
+                  {#if vram.error}
+                    <div class="text-error mt-1">{vram.error}</div>
+                  {:else}
+                    <div class="mt-1 h-2 rounded bg-surface border border-card-border overflow-hidden">
+                      <div class="h-full bg-gradient-to-r from-amber-500 to-orange-400" style={`width: ${clampPercent(vram.percent)}%`}></div>
+                    </div>
+                  {/if}
+                </div>
+              </div>
+            </div>
+          {/each}
         </div>
       </div>
 
