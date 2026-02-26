@@ -738,6 +738,119 @@ func TestProxyManager_NormalizeLegacyVLLMConfigCommands_LocalCommandHasValidShel
 	}
 }
 
+func TestProxyManager_NormalizeLegacyVLLMConfigCommands_RemoteCommandHasValidShellQuoting(t *testing.T) {
+	conf := config.Config{
+		Macros: config.MacroList{
+			{Name: "user_home", Value: "/home/tester"},
+		},
+		Models: map[string]config.ModelConfig{
+			"model-vllm": {
+				Cmd: `bash -lc 'exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no 192.0.2.10 "bash -lc \"exec /tmp/run-recipe.sh sample --solo --port 6001\""'`,
+				Metadata: map[string]any{
+					recipeMetadataKey: map[string]any{
+						"backend_dir": "/opt/spark-vllm-docker",
+						"mode":        "solo",
+						"nodes":       "192.0.2.10",
+					},
+				},
+			},
+		},
+	}
+
+	got := normalizeLegacyVLLMConfigCommands(conf)
+	cmd := got.Models["model-vllm"].Cmd
+
+	if !strings.Contains(cmd, "VLLM_SPARK_EXTRA_DOCKER_ARGS=") {
+		t.Fatalf("expected runtime cache assignment in remote command, got: %s", cmd)
+	}
+	if strings.Contains(cmd, `VLLM_SPARK_EXTRA_DOCKER_ARGS='`) {
+		t.Fatalf("unexpected single-quoted runtime cache assignment in remote command: %s", cmd)
+	}
+
+	args, err := config.SanitizeCommand(cmd)
+	if err != nil {
+		t.Fatalf("SanitizeCommand(cmd): %v", err)
+	}
+	if len(args) < 3 || args[0] != "bash" || args[1] != "-lc" {
+		t.Fatalf("unexpected cmd args: %#v", args)
+	}
+
+	check := exec.Command("bash", "-n", "-c", args[2])
+	out, err := check.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cmd has invalid shell quoting: %v\ncmd=%s\nout=%s", err, cmd, strings.TrimSpace(string(out)))
+	}
+}
+
+func TestProxyManager_NormalizeLegacyVLLMConfigCommands_RemoteCommandWithoutShellLiteralGetsRequoted(t *testing.T) {
+	conf := config.Config{
+		Macros: config.MacroList{
+			{Name: "user_home", Value: "/home/tester"},
+		},
+		Models: map[string]config.ModelConfig{
+			"model-vllm": {
+				// Legacy shape: bash -lc without a quoted script payload.
+				Cmd: `bash -lc exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no 192.0.2.10 "bash -lc \"exec /tmp/run-recipe.sh sample --solo --port 6001\""`,
+				Metadata: map[string]any{
+					recipeMetadataKey: map[string]any{
+						"backend_dir": "/opt/spark-vllm-docker",
+						"mode":        "solo",
+						"nodes":       "192.0.2.10",
+					},
+				},
+			},
+		},
+	}
+
+	got := normalizeLegacyVLLMConfigCommands(conf)
+	cmd := got.Models["model-vllm"].Cmd
+
+	args, err := config.SanitizeCommand(cmd)
+	if err != nil {
+		t.Fatalf("SanitizeCommand(cmd): %v", err)
+	}
+	if len(args) != 3 || args[0] != "bash" || args[1] != "-lc" {
+		t.Fatalf("unexpected cmd args: %#v", args)
+	}
+
+	check := exec.Command("bash", "-n", "-c", args[2])
+	if out, err := check.CombinedOutput(); err != nil {
+		t.Fatalf("cmd has invalid shell quoting: %v\ncmd=%s\nout=%s", err, cmd, strings.TrimSpace(string(out)))
+	}
+
+	localArgs, err := config.SanitizeCommand(args[2])
+	if err != nil {
+		t.Fatalf("SanitizeCommand(local script): %v\nscript=%s", err, args[2])
+	}
+	if len(localArgs) < 2 {
+		t.Fatalf("unexpected local script args: %#v", localArgs)
+	}
+	remoteArg := localArgs[len(localArgs)-1]
+	if !strings.HasPrefix(remoteArg, "bash -lc ") {
+		t.Fatalf("expected remote payload to be bash -lc, got: %s", remoteArg)
+	}
+
+	remoteArgs, err := config.SanitizeCommand(remoteArg)
+	if err != nil {
+		t.Fatalf("SanitizeCommand(remoteArg): %v\nremoteArg=%s", err, remoteArg)
+	}
+	if len(remoteArgs) != 3 || remoteArgs[0] != "bash" || remoteArgs[1] != "-lc" {
+		t.Fatalf("unexpected remote args: %#v", remoteArgs)
+	}
+	remoteInner := remoteArgs[2]
+	if strings.Contains(remoteInner, "VLLM_SPARK_EXTRA_DOCKER_ARGS=-v ") {
+		t.Fatalf("runtime cache assignment is not quoted in remote inner command: %s", remoteInner)
+	}
+	if !strings.Contains(remoteInner, `VLLM_SPARK_EXTRA_DOCKER_ARGS="-v /home/tester/.cache/torchinductor:/tmp/torchinductor_root`) {
+		t.Fatalf("missing quoted runtime cache assignment in remote inner command: %s", remoteInner)
+	}
+
+	checkRemote := exec.Command("bash", "-n", "-c", remoteInner)
+	if out, err := checkRemote.CombinedOutput(); err != nil {
+		t.Fatalf("remote inner command has invalid shell quoting: %v\nremoteInner=%s\nout=%s", err, remoteInner, strings.TrimSpace(string(out)))
+	}
+}
+
 func TestProxyManager_NormalizeLegacyVLLMConfigCommands_FixesLegacySingleQuotedAncestorFilter(t *testing.T) {
 	conf := config.Config{
 		Models: map[string]config.ModelConfig{
@@ -838,8 +951,37 @@ func TestProxyManager_UpsertRecipeModel_VLLMSingleNodeInjectsRuntimeCacheArgsRem
 	if !strings.Contains(cmd, `\"VLLM_SPARK_EXTRA_DOCKER_ARGS=`) {
 		t.Fatalf("expected runtime cache assignment in remote command, got: %s", cmd)
 	}
+	if strings.Contains(cmd, `VLLM_SPARK_EXTRA_DOCKER_ARGS='`) {
+		t.Fatalf("remote runtime cache assignment must avoid single quotes: %s", cmd)
+	}
 	if strings.Contains(cmd, "bash -lc 'VLLM_SPARK_EXTRA_DOCKER_ARGS=") {
 		t.Fatalf("runtime cache assignment should not be injected only in local shell: %s", cmd)
+	}
+}
+
+func TestProxyManager_UpsertRecipeModel_VLLMClusterCmdUsesConditionalReset(t *testing.T) {
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-vllm-cluster-reset", "vllm")
+
+	_, err := pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+		ModelID:        "runtime-vllm-cluster-reset-model",
+		RecipeRef:      "runtime-vllm-cluster-reset",
+		Mode:           "cluster",
+		TensorParallel: 2,
+		Nodes:          "192.0.2.10,192.0.2.11",
+	})
+	if err != nil {
+		t.Fatalf("upsertRecipeModel() error: %v", err)
+	}
+
+	cmd, _ := readRecipeModelCommandAndMeta(t, cfgPath, "runtime-vllm-cluster-reset-model")
+	if !strings.Contains(cmd, `if docker ps --format "{{.Names}}" | grep -q "^vllm_node$"; then`) {
+		t.Fatalf("expected conditional cluster reset probe, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, "if ! docker exec vllm_node ray status >/dev/null 2>&1; then") {
+		t.Fatalf("expected cluster health guard before stop, got: %s", cmd)
+	}
+	if strings.Contains(cmd, "bash -lc '(cd ") {
+		t.Fatalf("unexpected unconditional reset prefix in cmd: %s", cmd)
 	}
 }
 

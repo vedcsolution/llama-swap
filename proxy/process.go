@@ -41,9 +41,10 @@ const (
 )
 
 const (
-	processStartupInitialDelay    = 250 * time.Millisecond
-	processHealthCheckDialTimeout = 500 * time.Millisecond
-	processHealthCheckReadTimeout = 5 * time.Second
+	processStartupInitialDelay          = 250 * time.Millisecond
+	processHealthCheckDialTimeout       = 500 * time.Millisecond
+	processHealthCheckReadTimeout       = 5 * time.Second
+	processHealthCheckRetryInitialDelay = 200 * time.Millisecond
 )
 
 var processHealthCheckHTTPClient = &http.Client{
@@ -133,7 +134,7 @@ func NewProcess(ID string, healthCheckTimeout int, config config.ModelConfig, pr
 		processLogger:           processLogger,
 		proxyLogger:             proxyLogger,
 		healthCheckTimeout:      healthCheckTimeout,
-		healthCheckLoopInterval: 5 * time.Second, /* default, can not be set by user - used for testing */
+		healthCheckLoopInterval: 5 * time.Second, /* max retry interval, can not be set by user - used for testing */
 		state:                   StateStopped,
 
 		// concurrency limit
@@ -355,8 +356,10 @@ func (p *Process) start() error {
 		}
 
 		// Ready check loop
-		checkTicker := time.NewTicker(p.healthCheckLoopInterval)
-		defer checkTicker.Stop()
+		nextHealthCheckDelay := p.healthCheckLoopInterval
+		if nextHealthCheckDelay <= 0 || nextHealthCheckDelay > processHealthCheckRetryInitialDelay {
+			nextHealthCheckDelay = processHealthCheckRetryInitialDelay
+		}
 		for {
 			if err := cmdContext.Err(); err != nil {
 				return errors.New("health check interrupted due to shutdown")
@@ -390,7 +393,14 @@ func (p *Process) start() error {
 			select {
 			case <-cmdContext.Done():
 				return errors.New("health check interrupted due to shutdown")
-			case <-checkTicker.C:
+			case <-time.After(nextHealthCheckDelay):
+			}
+
+			if p.healthCheckLoopInterval > 0 && nextHealthCheckDelay < p.healthCheckLoopInterval {
+				nextHealthCheckDelay *= 2
+				if nextHealthCheckDelay > p.healthCheckLoopInterval {
+					nextHealthCheckDelay = p.healthCheckLoopInterval
+				}
 			}
 		}
 	}

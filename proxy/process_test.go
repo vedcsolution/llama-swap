@@ -339,6 +339,44 @@ func TestProcess_ExitInterruptsHealthCheck(t *testing.T) {
 	assert.Equal(t, process.CurrentState(), StateStopped)
 }
 
+func TestProcess_HealthCheckUsesFastRetryBackoff(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sleep command not supported in this test on Windows")
+	}
+
+	readyAt := time.Now().Add(650 * time.Millisecond)
+	healthServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			http.NotFound(w, r)
+			return
+		}
+		if time.Now().Before(readyAt) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer healthServer.Close()
+
+	conf := config.ModelConfig{
+		Cmd:           "sleep 5",
+		Proxy:         healthServer.URL,
+		CheckEndpoint: "/health",
+	}
+
+	process := NewProcess("fast-retry", 5, conf, debugLogger, debugLogger)
+	defer process.Stop()
+	process.healthCheckLoopInterval = 2 * time.Second // old fixed polling would wait up to this value
+
+	startAt := time.Now()
+	if err := process.start(); err != nil {
+		t.Fatalf("start() error: %v", err)
+	}
+	if elapsed := time.Since(startAt); elapsed >= 1500*time.Millisecond {
+		t.Fatalf("expected adaptive healthcheck retries to complete in <1.5s, got %v", elapsed)
+	}
+}
+
 func TestProcess_ConcurrencyLimit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping long concurrency limit test")

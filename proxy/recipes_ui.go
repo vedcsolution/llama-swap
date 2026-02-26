@@ -1342,8 +1342,9 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 	hotSwap := req.HotSwap && mode == "cluster" && backendKind != "llamacpp"
 	runtimeCachePolicyEnabled := backendKind == "vllm"
 	runtimeCachePolicyInCommand := runtimeCachePolicyEnabled && !hotSwap
-	runtimeCachePolicyAssignment := "VLLM_SPARK_EXTRA_DOCKER_ARGS=" + quoteForShellLiteral(
+	runtimeCachePolicyAssignment := vllmRuntimeCacheAssignment(
 		mergeVLLMRuntimeCacheExtraDockerArgs("", "${user_home}"),
+		false,
 	)
 
 	// If custom container specified, update the recipe file
@@ -1391,8 +1392,8 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 	// active serve process before launching a new model to avoid stale state.
 	hotSwapStopExpr := backendStopExprWithContainer(backendKind, containerImageToStore)
 
-	// For vLLM cluster launches, force-reset stale/partial cluster containers
-	// before starting the next model. This avoids reusing a solo head container
+	// For vLLM cluster launches, perform a conditional reset when an existing
+	// local vLLM container is unhealthy. This avoids unnecessary teardown/restart
 	// as if it were a healthy multi-node Ray cluster.
 	clusterResetPrefix := ""
 	if !hotSwap && mode == "cluster" && backendKind == "vllm" {
@@ -3532,7 +3533,7 @@ func buildVLLMClusterResetExpr(backendDir, containerImage string) string {
 	}
 
 	return fmt.Sprintf(
-		"(cd %s && ./launch-cluster.sh -t %s stop >/dev/null 2>&1 || true); ",
+		"if docker ps --format \"{{.Names}}\" | grep -q \"^vllm_node$\"; then if ! docker exec vllm_node ray status >/dev/null 2>&1; then (cd %s && ./launch-cluster.sh -t %s stop >/dev/null 2>&1 || true); fi; fi; ",
 		quoteForCommand(backendDir),
 		quoteForCommand(containerImage),
 	)
@@ -3717,8 +3718,11 @@ func injectAssignmentBeforeEscapedRemoteExec(cmd, assignment string) (string, bo
 
 func vllmRuntimeCacheAssignment(value string, escapedRemote bool) string {
 	if escapedRemote {
-		// Escaped remote commands run inside \"...\" where unescaped double quotes break parsing.
-		return "VLLM_SPARK_EXTRA_DOCKER_ARGS=" + quoteForShellLiteral(value)
+		// Escaped remote commands are embedded inside local bash -lc '...'.
+		// Use escaped double-quotes to avoid breaking outer single-quote parsing.
+		escaped := strings.ReplaceAll(value, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+		return `VLLM_SPARK_EXTRA_DOCKER_ARGS=\\\"` + escaped + `\\\"`
 	}
 	// Local bash -lc '<cmd>' commands cannot safely contain nested single quotes.
 	return "VLLM_SPARK_EXTRA_DOCKER_ARGS=" + quoteForCommand(value)
@@ -3730,33 +3734,48 @@ func ensureVLLMRuntimeCachePolicyInCommand(cmd, userHome string) string {
 		return cmd
 	}
 
-	escapedRemote := strings.Contains(trimmed, "\\\"exec ")
+	wrappedShell := false
+	workingCmd := trimmed
+	const bashLCPrefix = "bash -lc "
+	if strings.HasPrefix(trimmed, bashLCPrefix) {
+		wrappedShell = true
+		workingCmd = strings.TrimSpace(strings.TrimPrefix(trimmed, bashLCPrefix))
+		if args, err := config.SanitizeCommand(trimmed); err == nil && len(args) == 3 && args[0] == "bash" && args[1] == "-lc" {
+			workingCmd = strings.TrimSpace(args[2])
+		}
+	}
+
+	escapedRemote := strings.Contains(workingCmd, "\\\"exec ")
 	assignment := ""
-	if matched := vllmExtraDockerArgsAssignRe.FindString(trimmed); matched != "" {
+	if matched := vllmExtraDockerArgsAssignRe.FindString(workingCmd); matched != "" {
 		if eq := strings.Index(matched, "="); eq >= 0 && eq+1 < len(matched) {
 			existing := stripAssignmentValueQuotes(matched[eq+1:])
 			merged := mergeVLLMRuntimeCacheExtraDockerArgs(existing, userHome)
 			assignment = vllmRuntimeCacheAssignment(merged, escapedRemote)
-			return vllmExtraDockerArgsAssignRe.ReplaceAllString(trimmed, assignment)
+			workingCmd = vllmExtraDockerArgsAssignRe.ReplaceAllString(workingCmd, assignment)
+		}
+	} else {
+		merged := mergeVLLMRuntimeCacheExtraDockerArgs("", userHome)
+		assignment = vllmRuntimeCacheAssignment(merged, escapedRemote)
+
+		if escapedRemote {
+			if updated, ok := injectAssignmentBeforeEscapedRemoteExec(workingCmd, assignment); ok {
+				workingCmd = updated
+			} else {
+				// Fallback for legacy remote command shapes where the escaped exec marker differs.
+				assignment = vllmRuntimeCacheAssignment(merged, false)
+				workingCmd = injectAssignmentBeforeExec(workingCmd, assignment)
+			}
+		} else {
+			workingCmd = injectAssignmentBeforeExec(workingCmd, assignment)
 		}
 	}
 
-	merged := mergeVLLMRuntimeCacheExtraDockerArgs("", userHome)
-	assignment = vllmRuntimeCacheAssignment(merged, true)
-
-	if updated, ok := injectAssignmentBeforeEscapedRemoteExec(trimmed, assignment); ok {
-		return updated
+	if wrappedShell {
+		return "bash -lc " + strconv.Quote(workingCmd)
 	}
 
-	assignment = vllmRuntimeCacheAssignment(merged, false)
-	const shellPrefix = "bash -lc '"
-	if strings.HasPrefix(trimmed, shellPrefix) && strings.HasSuffix(trimmed, "'") {
-		inner := strings.TrimSuffix(strings.TrimPrefix(trimmed, shellPrefix), "'")
-		inner = injectAssignmentBeforeExec(inner, assignment)
-		return shellPrefix + inner + "'"
-	}
-
-	return injectAssignmentBeforeExec(trimmed, assignment)
+	return workingCmd
 }
 
 func normalizeLegacyVLLMDetectorFilterQuoting(cmd string) string {
