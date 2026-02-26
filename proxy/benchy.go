@@ -41,6 +41,7 @@ const (
 	benchyEnvCmd           = "LLAMA_BENCHY_CMD"
 	benchyEnvDisableRunner = "LLAMA_BENCHY_DISABLE"
 	benchyEnvOutputDir     = "LLAMA_BENCHY_OUTPUT_DIR"
+	benchyEnvHFHome        = "LLAMA_BENCHY_HF_HOME"
 	benchyEnvPyShimDir     = "LLAMA_SWAP_BENCHY_PY_SHIM_DIR"
 	benchyEnvSwebenchShim  = "LLAMA_SWAP_SWEBENCH_TEXT_COMPAT"
 	benchyDefaultOutputDir = "/tmp/llama-benchy-runs"
@@ -596,6 +597,22 @@ func (pm *ProxyManager) executeBenchyProcess(
 
 	cmd := exec.CommandContext(ctx, benchyCmd, append(benchyArgs, args...)...)
 	cmd.Env = os.Environ()
+	if hfHome := defaultBenchyHFHomeDir(); hfHome != "" {
+		hfHub := filepath.Join(hfHome, "hub")
+		hfDatasets := filepath.Join(hfHome, "datasets")
+		if err := os.MkdirAll(hfHub, 0o755); err != nil {
+			pm.appendBenchyOutput(jobID, "stderr", fmt.Sprintf("[benchy] warning: unable to create HF hub cache dir %s: %v\n", hfHub, err))
+		} else if err := os.MkdirAll(hfDatasets, 0o755); err != nil {
+			pm.appendBenchyOutput(jobID, "stderr", fmt.Sprintf("[benchy] warning: unable to create HF datasets cache dir %s: %v\n", hfDatasets, err))
+		} else {
+			cmd.Env = setOrReplaceEnv(cmd.Env, "HF_HOME", hfHome)
+			cmd.Env = setOrReplaceEnv(cmd.Env, "HF_HUB_CACHE", hfHub)
+			cmd.Env = setOrReplaceEnv(cmd.Env, "HUGGINGFACE_HUB_CACHE", hfHub)
+			cmd.Env = setOrReplaceEnv(cmd.Env, "TRANSFORMERS_CACHE", hfHub)
+			cmd.Env = setOrReplaceEnv(cmd.Env, "HF_DATASETS_CACHE", hfDatasets)
+			pm.appendBenchyOutput(jobID, "stdout", fmt.Sprintf("[benchy] HF cache isolated at %s\n", hfHome))
+		}
+	}
 	if opts.EnableIntelligence && containsPlugin(opts.IntelligencePlugins, "swebench_verified") {
 		if shimDir := pm.benchyPythonShimDir(); shimDir != "" {
 			cmd.Env = prependEnvPathList(cmd.Env, "PYTHONPATH", shimDir)
@@ -1437,6 +1454,17 @@ func defaultBenchyOutputDir() string {
 		return v
 	}
 	return benchyDefaultOutputDir
+}
+
+func defaultBenchyHFHomeDir() string {
+	if v := strings.TrimSpace(os.Getenv(benchyEnvHFHome)); v != "" {
+		return expandLeadingTilde(v)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, ".cache", "llama-benchy-hf")
 }
 
 func (pm *ProxyManager) benchyPythonShimDir() string {
