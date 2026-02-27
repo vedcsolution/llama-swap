@@ -32,6 +32,8 @@ ui-svelte/node_modules/
 
 # local helper state
 .hf_hub_path
+cluster-inventory.yaml
+.cluster_settings.json
 backend/spark-vllm-docker/
 backend/spark-llama-cpp/llama.cpp/
 llama-swap.out.log
