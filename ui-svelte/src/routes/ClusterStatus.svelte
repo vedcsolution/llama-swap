@@ -312,12 +312,24 @@
   }
 
   async function runWizardClusterSettings(): Promise<void> {
+    const fallbackNodesFromState =
+      state?.nodes?.map((node) => node.ip).filter((ip): ip is string => Boolean(ip && ip.trim())).join("\n") || "";
+    const nodesPayload = wizardNodes.trim() || fallbackNodesFromState;
+    if (!nodesPayload) {
+      settingsError = "nodes is required (comma/newline separated IP or hostname list)";
+      settingsResult = null;
+      return;
+    }
+    if (!wizardNodes.trim() && nodesPayload) {
+      wizardNodes = nodesPayload;
+    }
+
     wizardSaving = true;
     settingsError = null;
     settingsResult = null;
     try {
       const next = await applyClusterWizard({
-        nodes: wizardNodes,
+        nodes: nodesPayload,
         headNode: wizardHeadNode.trim(),
         ethIf: wizardEthIf.trim(),
         ibIf: wizardIbIf.trim(),
