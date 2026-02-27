@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -82,9 +83,45 @@ type agentShellResponse struct {
 	Error    string `json:"error,omitempty"`
 }
 
+type clusterRuntimeOverride struct {
+	ExecMode      string
+	InventoryFile string
+}
+
+var (
+	clusterRuntimeOverrideMu sync.RWMutex
+	clusterRuntimeOverrideV  clusterRuntimeOverride
+)
+
+func setClusterRuntimeOverride(next clusterRuntimeOverride) {
+	next.ExecMode = strings.ToLower(strings.TrimSpace(next.ExecMode))
+	if next.ExecMode != clusterExecModeLocal && next.ExecMode != clusterExecModeAgent {
+		next.ExecMode = ""
+	}
+	next.InventoryFile = strings.TrimSpace(next.InventoryFile)
+	clusterRuntimeOverrideMu.Lock()
+	clusterRuntimeOverrideV = next
+	clusterRuntimeOverrideMu.Unlock()
+}
+
+func clusterRuntimeOverrideSnapshot() clusterRuntimeOverride {
+	clusterRuntimeOverrideMu.RLock()
+	defer clusterRuntimeOverrideMu.RUnlock()
+	return clusterRuntimeOverrideV
+}
+
 func clusterExecMode() string {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv(clusterExecModeEnv)))
+	override := clusterRuntimeOverrideSnapshot()
+	mode := strings.ToLower(strings.TrimSpace(override.ExecMode))
+	if mode == "" {
+		mode = strings.ToLower(strings.TrimSpace(os.Getenv(clusterExecModeEnv)))
+	}
 	switch mode {
+	case "":
+		if clusterInventoryFilePath() != "" {
+			return clusterExecModeAgent
+		}
+		return clusterExecModeLocal
 	case clusterExecModeAgent:
 		return clusterExecModeAgent
 	default:
@@ -129,10 +166,16 @@ func clusterAgentPort(defaultFromInventory int) int {
 }
 
 func clusterInventoryFilePath() string {
+	if v := strings.TrimSpace(clusterRuntimeOverrideSnapshot().InventoryFile); v != "" {
+		return v
+	}
 	if v := strings.TrimSpace(os.Getenv(clusterInventoryFileEnv)); v != "" {
 		return v
 	}
+	return clusterInventoryAutoDetectPath()
+}
 
+func clusterInventoryAutoDetectPath() string {
 	candidates := make([]string, 0, 8)
 	if wd, err := os.Getwd(); err == nil {
 		candidates = append(candidates,

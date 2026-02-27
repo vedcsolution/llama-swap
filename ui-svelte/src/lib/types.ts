@@ -388,24 +388,33 @@ export interface ClusterNodeDiskStatus {
 export interface ClusterNodeGPUDevice {
   index: number;
   utilizationPct?: number;
+  memoryKnown?: boolean;
   totalMiB: number;
   usedMiB: number;
   freeMiB: number;
 }
 
+export type ClusterGPUQuality = "full" | "util_only" | "count_only" | "none";
+
 export interface ClusterNodeGPUStatus {
   queriedAt: string;
   devices?: ClusterNodeGPUDevice[];
+  quality?: ClusterGPUQuality;
   error?: string;
 }
 
 export interface ClusterNodeStatus {
+  id?: string;
   ip: string;
+  controlIp?: string;
+  proxyIp?: string;
   isLocal: boolean;
   port22Open: boolean;
   port22LatencyMs?: number;
+  port22Error?: string;
   sshOk: boolean;
   sshLatencyMs?: number;
+  sshError?: string;
   error?: string;
   cpu?: ClusterNodeCPUStatus;
   disk?: ClusterNodeDiskStatus;
@@ -434,6 +443,42 @@ export interface ClusterStorageState {
   note: string;
 }
 
+export interface ClusterStatusTimingsMs {
+  autodiscover: number;
+  probe: number;
+  metrics: number;
+  storage: number;
+  dgx: number;
+  total: number;
+}
+
+export type ClusterExecMode = "local" | "agent";
+export type ClusterConnectivityMode = "ssh" | "agent";
+export type ClusterCacheState = "miss" | "fresh" | "stale";
+
+export interface ClusterSettingsState {
+  execMode: ClusterExecMode;
+  requestedExecMode?: ClusterExecMode;
+  inventoryFile?: string;
+  autoDetectedInventoryFile?: string;
+  inventoryExists: boolean;
+  clusterExecModeEnv?: string;
+}
+
+export interface ClusterSettingsUpdateRequest {
+  execMode?: "auto" | ClusterExecMode;
+  inventoryFile?: string;
+}
+
+export interface ClusterWizardRequest {
+  nodes: string;
+  headNode?: string;
+  ethIf?: string;
+  ibIf?: string;
+  defaultSshUser?: string;
+  inventoryFile?: string;
+}
+
 export interface ClusterStatusState {
   autodiscoverPath: string;
   detectedAt: string;
@@ -449,6 +494,11 @@ export interface ClusterStatusState {
   errors?: string[];
   nodes: ClusterNodeStatus[];
   storage?: ClusterStorageState;
+  execMode?: ClusterExecMode;
+  connectivityMode?: ClusterConnectivityMode;
+  cacheState?: ClusterCacheState;
+  cacheAgeMs?: number;
+  timingsMs?: ClusterStatusTimingsMs;
 }
 
 export interface ClusterDGXStatus {

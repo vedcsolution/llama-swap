@@ -4618,7 +4618,7 @@ func selectBestFitNodeFromList(parentCtx context.Context, nodes []string, localI
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			devices, err := queryNodeGPUMemory(parentCtx, host, isLocal)
+			devices, _, err := queryNodeGPUMemory(parentCtx, host, isLocal)
 			if err != nil {
 				results[idx] = nodeGPUFitCandidate{Node: host, Err: err}
 				return

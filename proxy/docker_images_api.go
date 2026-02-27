@@ -138,10 +138,6 @@ func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
 	}()
 
 	localFetch := <-localImagesCh
-	if localFetch.err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": localFetch.err.Error()})
-		return
-	}
 	localImages := localFetch.images
 
 	discovery := <-discoverCh
@@ -150,16 +146,23 @@ func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
 		if nodeIP == "" {
 			nodeIP = "127.0.0.1"
 		}
-		resp := dockerImagesResponse{
-			Images: localImages,
-			Nodes: []dockerNodeImages{
-				{
-					NodeIP:  nodeIP,
-					IsLocal: true,
-					Images:  localImages,
-				},
+		nodes := []dockerNodeImages{
+			{
+				NodeIP:  nodeIP,
+				IsLocal: true,
+				Images:  localImages,
 			},
+		}
+		if localFetch.err != nil {
+			nodes[0].Error = localFetch.err.Error()
+		}
+		resp := dockerImagesResponse{
+			Images:         pickPrimaryDockerImages(nodes, localImages),
+			Nodes:          nodes,
 			DiscoveryError: discovery.err.Error(),
+		}
+		if localFetch.err != nil {
+			resp.DiscoveryError = strings.TrimSpace(resp.DiscoveryError + "; local docker unavailable: " + localFetch.err.Error())
 		}
 		storeDockerImagesCache(resp, now)
 		c.JSON(http.StatusOK, resp)
@@ -202,10 +205,15 @@ func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
 		}
 		isLocal := host == discovery.localIP || isKnownLocalIP(localIPs, host)
 		if isLocal {
+			errText := ""
+			if localFetch.err != nil {
+				errText = localFetch.err.Error()
+			}
 			results[idx] = dockerNodeImages{
 				NodeIP:  host,
 				IsLocal: true,
 				Images:  localImages,
+				Error:   errText,
 			}
 			continue
 		}
@@ -232,7 +240,7 @@ func (pm *ProxyManager) apiListDockerImages(c *gin.Context) {
 	sortDockerNodeImages(results)
 
 	resp := dockerImagesResponse{
-		Images: pickLocalDockerImages(results, localImages),
+		Images: pickPrimaryDockerImages(results, localImages),
 		Nodes:  results,
 	}
 	storeDockerImagesCache(resp, now)

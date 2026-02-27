@@ -204,6 +204,7 @@ func newProxyManager(proxyConfig config.Config, configPath string) *ProxyManager
 
 	pm.loadRecipesBackendOverride()
 	pm.loadHFHubPathOverride()
+	pm.loadClusterRuntimeOverride()
 
 	// create the process groups
 	for groupID := range proxyConfig.Groups {

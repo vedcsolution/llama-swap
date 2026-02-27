@@ -23,6 +23,9 @@ import type {
   ConfigEditorState,
   ClusterStatusState,
   ClusterDGXUpdateResponse,
+  ClusterSettingsState,
+  ClusterSettingsUpdateRequest,
+  ClusterWizardRequest,
 } from "../lib/types";
 import { connectionState } from "./theme";
 
@@ -666,4 +669,57 @@ export async function runClusterDGXUpdate(targets?: string[]): Promise<ClusterDG
     throw new Error(msg || `Failed to execute DGX cluster update: ${response.status}`);
   }
   return (await response.json()) as ClusterDGXUpdateResponse;
+}
+
+export async function getClusterSettings(): Promise<ClusterSettingsState> {
+  const response = await fetch(`/api/cluster/settings`);
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to fetch cluster settings: ${response.status}`);
+  }
+  return (await response.json()) as ClusterSettingsState;
+}
+
+export async function setClusterSettings(payload: ClusterSettingsUpdateRequest): Promise<ClusterSettingsState> {
+  const response = await fetch(`/api/cluster/settings`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to update cluster settings: ${response.status}`);
+  }
+  return (await response.json()) as ClusterSettingsState;
+}
+
+export async function applyClusterWizard(payload: ClusterWizardRequest): Promise<{
+  settings: ClusterSettingsState;
+  wizard?: {
+    inventoryFile?: string;
+    nodes?: string[];
+    headNode?: string;
+  };
+}> {
+  const response = await fetch(`/api/cluster/settings/wizard`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to apply cluster wizard: ${response.status}`);
+  }
+  return (await response.json()) as {
+    settings: ClusterSettingsState;
+    wizard?: {
+      inventoryFile?: string;
+      nodes?: string[];
+      headNode?: string;
+    };
+  };
 }

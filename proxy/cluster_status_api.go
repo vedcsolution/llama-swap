@@ -35,9 +35,11 @@ type clusterNodeStatus struct {
 	ProxyIP       string                 `json:"proxyIp,omitempty"`
 	IsLocal       bool                   `json:"isLocal"`
 	Port22Open    bool                   `json:"port22Open"`
-	Port22Latency int64                  `json:"port22LatencyMs,omitempty"`
+	Port22Latency *int64                 `json:"port22LatencyMs,omitempty"`
+	Port22Error   string                 `json:"port22Error,omitempty"`
 	SSHOK         bool                   `json:"sshOk"`
-	SSHLatency    int64                  `json:"sshLatencyMs,omitempty"`
+	SSHLatency    *int64                 `json:"sshLatencyMs,omitempty"`
+	SSHError      string                 `json:"sshError,omitempty"`
 	Error         string                 `json:"error,omitempty"`
 	DGX           *clusterDGXStatus      `json:"dgx,omitempty"`
 	CPU           *clusterNodeCPUStatus  `json:"cpu,omitempty"`
@@ -46,11 +48,12 @@ type clusterNodeStatus struct {
 }
 
 type clusterNodeGPUDevice struct {
-	Index          int  `json:"index"`
-	UtilizationPct *int `json:"utilizationPct,omitempty"`
-	TotalMiB       int  `json:"totalMiB"`
-	UsedMiB        int  `json:"usedMiB"`
-	FreeMiB        int  `json:"freeMiB"`
+	Index          int   `json:"index"`
+	UtilizationPct *int  `json:"utilizationPct,omitempty"`
+	MemoryKnown    *bool `json:"memoryKnown,omitempty"`
+	TotalMiB       int   `json:"totalMiB"`
+	UsedMiB        int   `json:"usedMiB"`
+	FreeMiB        int   `json:"freeMiB"`
 }
 
 type clusterNodeCPUStatus struct {
@@ -72,6 +75,7 @@ type clusterNodeDiskStatus struct {
 type clusterNodeGPUStatus struct {
 	QueriedAt string                 `json:"queriedAt"`
 	Devices   []clusterNodeGPUDevice `json:"devices,omitempty"`
+	Quality   string                 `json:"quality,omitempty"`
 	Error     string                 `json:"error,omitempty"`
 }
 
@@ -173,6 +177,24 @@ type clusterStatusCachedResult struct {
 	CacheAgeMs int64
 }
 
+type clusterStatusTimingsMs struct {
+	Autodiscover int64 `json:"autodiscover"`
+	Probe        int64 `json:"probe"`
+	Metrics      int64 `json:"metrics"`
+	Storage      int64 `json:"storage"`
+	DGX          int64 `json:"dgx"`
+	Total        int64 `json:"total"`
+}
+
+type clusterStatusAPIResponse struct {
+	clusterStatusState
+	ExecMode         string                 `json:"execMode"`
+	ConnectivityMode string                 `json:"connectivityMode"`
+	CacheState       string                 `json:"cacheState"`
+	CacheAgeMs       int64                  `json:"cacheAgeMs"`
+	TimingsMs        clusterStatusTimingsMs `json:"timingsMs"`
+}
+
 type clusterStatusLoader func(context.Context, clusterStatusLoadOptions) (clusterStatusState, clusterStatusTimings, error)
 
 func (pm *ProxyManager) apiGetClusterStatus(c *gin.Context) {
@@ -188,7 +210,19 @@ func (pm *ProxyManager) apiGetClusterStatus(c *gin.Context) {
 	c.Header("X-Cluster-Cache-State", result.CacheState)
 	c.Header("X-Cluster-Cache-Age-Ms", strconv.FormatInt(result.CacheAgeMs, 10))
 	c.Header("Server-Timing", formatClusterServerTiming(result.Timings))
-	c.JSON(http.StatusOK, result.State)
+	execMode := clusterExecMode()
+	connectivityMode := "ssh"
+	if execMode == clusterExecModeAgent {
+		connectivityMode = "agent"
+	}
+	c.JSON(http.StatusOK, clusterStatusAPIResponse{
+		clusterStatusState: result.State,
+		ExecMode:           execMode,
+		ConnectivityMode:   connectivityMode,
+		CacheState:         result.CacheState,
+		CacheAgeMs:         result.CacheAgeMs,
+		TimingsMs:          clusterStatusTimingsToMs(result.Timings),
+	})
 }
 
 func parseClusterStatusRequestOptions(c *gin.Context) clusterStatusRequestOptions {
@@ -424,6 +458,17 @@ func formatClusterDurationMs(d time.Duration) string {
 	return strconv.FormatFloat(float64(d.Microseconds())/1000.0, 'f', 1, 64)
 }
 
+func clusterStatusTimingsToMs(timing clusterStatusTimings) clusterStatusTimingsMs {
+	return clusterStatusTimingsMs{
+		Autodiscover: timing.Autodiscover.Milliseconds(),
+		Probe:        timing.Probe.Milliseconds(),
+		Metrics:      timing.Metrics.Milliseconds(),
+		Storage:      timing.Storage.Milliseconds(),
+		DGX:          timing.DGX.Milliseconds(),
+		Total:        timing.Total.Milliseconds(),
+	}
+}
+
 func (pm *ProxyManager) readClusterStatus(parentCtx context.Context, opts clusterStatusLoadOptions) (clusterStatusState, clusterStatusTimings, error) {
 	if clusterExecModeIsAgent() {
 		return pm.readClusterStatusFromInventory(parentCtx, opts)
@@ -480,16 +525,18 @@ func (pm *ProxyManager) readClusterStatus(parentCtx context.Context, opts cluste
 
 			p22ok, p22lat, p22err := probePort22(node, 2*time.Second)
 			nodeStatuses[idx].Port22Open = p22ok
-			nodeStatuses[idx].Port22Latency = p22lat
+			nodeStatuses[idx].Port22Latency = clusterInt64Ptr(p22lat)
 			if p22err != nil {
-				errParts = append(errParts, "port22: "+p22err.Error())
+				nodeStatuses[idx].Port22Error = p22err.Error()
+				errParts = append(errParts, "port22: "+nodeStatuses[idx].Port22Error)
 			}
 
 			sshOK, sshLat, sshErr := probeSSH(ctx, node, 8*time.Second)
 			nodeStatuses[idx].SSHOK = sshOK
-			nodeStatuses[idx].SSHLatency = sshLat
+			nodeStatuses[idx].SSHLatency = clusterInt64Ptr(sshLat)
 			if sshErr != nil {
-				errParts = append(errParts, "ssh: "+sshErr.Error())
+				nodeStatuses[idx].SSHError = sshErr.Error()
+				errParts = append(errParts, "ssh: "+nodeStatuses[idx].SSHError)
 			}
 
 			if len(errParts) > 0 {
@@ -641,10 +688,12 @@ func (pm *ProxyManager) readClusterStatusFromInventory(parentCtx context.Context
 			defer wg.Done()
 			agentOK, agentLatency, agentErr := probeAgent(ctx, route.DataIP, 8*time.Second)
 			nodeStatuses[idx].Port22Open = agentOK
-			nodeStatuses[idx].Port22Latency = agentLatency
+			nodeStatuses[idx].Port22Latency = clusterInt64Ptr(agentLatency)
 			nodeStatuses[idx].SSHOK = agentOK
-			nodeStatuses[idx].SSHLatency = agentLatency
+			nodeStatuses[idx].SSHLatency = clusterInt64Ptr(agentLatency)
 			if agentErr != nil {
+				nodeStatuses[idx].Port22Error = agentErr.Error()
+				nodeStatuses[idx].SSHError = agentErr.Error()
 				nodeStatuses[idx].Error = "agent: " + agentErr.Error()
 			}
 		}()
@@ -922,6 +971,7 @@ func populateClusterGPUStatus(parentCtx context.Context, nodes []clusterNodeStat
 		node := nodes[idx]
 		status := &clusterNodeGPUStatus{
 			QueriedAt: time.Now().UTC().Format(time.RFC3339),
+			Quality:   "none",
 		}
 		nodes[idx].GPU = status
 		if !node.IsLocal && !node.SSHOK {
@@ -932,40 +982,46 @@ func populateClusterGPUStatus(parentCtx context.Context, nodes []clusterNodeStat
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			devices, err := queryNodeGPUMemory(parentCtx, node.IP, node.IsLocal)
+			devices, quality, err := queryNodeGPUMemory(parentCtx, node.IP, node.IsLocal)
 			if err != nil {
 				status.Error = err.Error()
 			} else {
 				status.Devices = devices
+				status.Quality = quality
 			}
 		}()
 	}
 	wg.Wait()
 }
 
-func queryNodeGPUMemory(parentCtx context.Context, host string, isLocal bool) ([]clusterNodeGPUDevice, error) {
+func queryNodeGPUMemory(parentCtx context.Context, host string, isLocal bool) ([]clusterNodeGPUDevice, string, error) {
 	ctx, cancel := context.WithTimeout(parentCtx, clusterNodeMetricTimeout)
 	defer cancel()
 
 	output, err := runClusterNodeShell(ctx, host, isLocal, "nvidia-smi --query-gpu=utilization.gpu,memory.total,memory.used,memory.free --format=csv,noheader,nounits")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	trimmed := strings.TrimSpace(output)
 	if trimmed == "" {
 		fallbackDevices, fallbackErr := queryNodeGPUDevicesByList(parentCtx, host, isLocal)
 		if fallbackErr != nil {
-			return []clusterNodeGPUDevice{}, nil
+			return []clusterNodeGPUDevice{}, "none", nil
 		}
-		return fallbackDevices, nil
+		if len(fallbackDevices) == 0 {
+			return fallbackDevices, "none", nil
+		}
+		return fallbackDevices, "count_only", nil
 	}
 	lower := strings.ToLower(trimmed)
 	if strings.Contains(lower, "no devices were found") {
-		return []clusterNodeGPUDevice{}, nil
+		return []clusterNodeGPUDevice{}, "none", nil
 	}
 
 	lines := strings.Split(trimmed, "\n")
 	devices := make([]clusterNodeGPUDevice, 0, len(lines))
+	hasUtilKnown := false
+	allMemoryKnown := true
 	for idx, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -973,7 +1029,7 @@ func queryNodeGPUMemory(parentCtx context.Context, host string, isLocal bool) ([
 		}
 		parts := strings.Split(line, ",")
 		if len(parts) < 4 {
-			return nil, fmt.Errorf("unexpected nvidia-smi output: %q", line)
+			return nil, "", fmt.Errorf("unexpected nvidia-smi output: %q", line)
 		}
 		utilRaw := strings.TrimSpace(parts[0])
 		totalRaw := strings.TrimSpace(parts[1])
@@ -981,19 +1037,26 @@ func queryNodeGPUMemory(parentCtx context.Context, host string, isLocal bool) ([
 		freeRaw := strings.TrimSpace(parts[3])
 		util, err := parseOptionalGPUValue(utilRaw, 100)
 		if err != nil {
-			return nil, fmt.Errorf("invalid GPU utilization: %s", utilRaw)
+			return nil, "", fmt.Errorf("invalid GPU utilization: %s", utilRaw)
 		}
 		total, err := parseOptionalGPUValue(totalRaw, 0)
 		if err != nil {
-			return nil, fmt.Errorf("invalid GPU total memory: %s", totalRaw)
+			return nil, "", fmt.Errorf("invalid GPU total memory: %s", totalRaw)
 		}
 		used, err := parseOptionalGPUValue(usedRaw, 0)
 		if err != nil {
-			return nil, fmt.Errorf("invalid GPU used memory: %s", usedRaw)
+			return nil, "", fmt.Errorf("invalid GPU used memory: %s", usedRaw)
 		}
 		free, err := parseOptionalGPUValue(freeRaw, 0)
 		if err != nil {
-			return nil, fmt.Errorf("invalid GPU free memory: %s", freeRaw)
+			return nil, "", fmt.Errorf("invalid GPU free memory: %s", freeRaw)
+		}
+		if util != nil {
+			hasUtilKnown = true
+		}
+		memoryKnown := total != nil && used != nil
+		if !memoryKnown {
+			allMemoryKnown = false
 		}
 		totalValue := 0
 		if total != nil {
@@ -1019,6 +1082,7 @@ func queryNodeGPUMemory(parentCtx context.Context, host string, isLocal bool) ([
 		devices = append(devices, clusterNodeGPUDevice{
 			Index:          idx,
 			UtilizationPct: util,
+			MemoryKnown:    clusterBoolPtr(memoryKnown),
 			TotalMiB:       totalValue,
 			UsedMiB:        usedValue,
 			FreeMiB:        freeValue,
@@ -1027,10 +1091,25 @@ func queryNodeGPUMemory(parentCtx context.Context, host string, isLocal bool) ([
 	if len(devices) == 0 {
 		fallbackDevices, fallbackErr := queryNodeGPUDevicesByList(parentCtx, host, isLocal)
 		if fallbackErr == nil {
-			return fallbackDevices, nil
+			if len(fallbackDevices) == 0 {
+				return fallbackDevices, "none", nil
+			}
+			return fallbackDevices, "count_only", nil
 		}
 	}
-	return devices, nil
+	if hasUtilKnown && allMemoryKnown {
+		return devices, "full", nil
+	}
+	if hasUtilKnown {
+		return devices, "util_only", nil
+	}
+	if len(devices) > 0 {
+		if allMemoryKnown {
+			return devices, "full", nil
+		}
+		return devices, "count_only", nil
+	}
+	return devices, "none", nil
 }
 
 func queryNodeGPUDevicesByList(parentCtx context.Context, host string, isLocal bool) ([]clusterNodeGPUDevice, error) {
@@ -1050,7 +1129,8 @@ func queryNodeGPUDevicesByList(parentCtx context.Context, host string, isLocal b
 			continue
 		}
 		devices = append(devices, clusterNodeGPUDevice{
-			Index: len(devices),
+			Index:       len(devices),
+			MemoryKnown: clusterBoolPtr(false),
 		})
 	}
 	return devices, nil
@@ -1078,6 +1158,16 @@ func parseOptionalGPUValue(raw string, maxValue int) (*int, error) {
 }
 
 func clusterIntPtr(value int) *int {
+	v := value
+	return &v
+}
+
+func clusterInt64Ptr(value int64) *int64 {
+	v := value
+	return &v
+}
+
+func clusterBoolPtr(value bool) *bool {
 	v := value
 	return &v
 }

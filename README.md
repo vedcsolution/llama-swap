@@ -212,24 +212,7 @@ Intelligence plugin source:
 
 ## Marlin-sm12x Image Build Helper
 
-This fork includes:
-
-- `scripts/build-vllm-marlin-sm12x.sh`
-
-It builds a custom `vllm-node-marlin-sm12x` image and can optionally copy it to nodes.
-
-Example:
-
-```bash
-./scripts/build-vllm-marlin-sm12x.sh \
-  --tag vllm-node-marlin-sm12x \
-  --nodes 192.168.200.12,192.168.200.13
-```
-
-By default, it resolves backend path from:
-
-- `SPARK_VLLM_DOCKER_DIR`
-- fallback: `../spark-vllm-docker`
+`scripts/build-vllm-marlin-sm12x.sh` is not included in this fork.
 
 ## NVMe-oF Canary Toolkit
 

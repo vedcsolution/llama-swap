@@ -1,8 +1,24 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getClusterStatus, runClusterDGXUpdate } from "../stores/api";
-  import type { ClusterStatusState } from "../lib/types";
+  import {
+    applyClusterWizard,
+    getClusterSettings,
+    getClusterStatus,
+    runClusterDGXUpdate,
+    setClusterSettings,
+  } from "../stores/api";
+  import type { ClusterSettingsState, ClusterStatusState } from "../lib/types";
   import { collapseHomePath } from "../lib/pathDisplay";
+  import {
+    buildClusterVramSummary as buildVramSummary,
+    connectivityProbeLabelForState as connectivityProbeLabel,
+    connectivityStatusLabelForState as connectivityStatusLabel,
+    formatCacheAgeMs as formatCacheAge,
+    formatDurationMsLabel as formatDurationMs,
+    formatMiB,
+    formatNodeLatency as formatLatency,
+    type NodeMetricSummary,
+  } from "./clusterStatusViewModel";
 
   let loading = true;
   let refreshing = false;
@@ -19,6 +35,20 @@
   let dgxActionError: string | null = null;
   let dgxActionResult: string | null = null;
   let state: ClusterStatusState | null = null;
+  let clusterSettings: ClusterSettingsState | null = null;
+  let settingsLoading = false;
+  let settingsSaving = false;
+  let settingsError: string | null = null;
+  let settingsResult: string | null = null;
+  let settingsExecMode: "auto" | "local" | "agent" = "auto";
+  let settingsInventoryFile = "";
+  let wizardNodes = "";
+  let wizardHeadNode = "";
+  let wizardEthIf = "enp1s0f1np1";
+  let wizardIbIf = "rocep1s0f1,roceP2p1s0f1";
+  let wizardDefaultSSHUser = "csolutions_ai";
+  let wizardInventoryFile = "";
+  let wizardSaving = false;
   let requestGeneration = 0;
   const activeControllers = new Set<AbortController>();
 
@@ -52,11 +82,6 @@
     const parsed = new Date(value);
     if (Number.isNaN(parsed.getTime())) return value;
     return parsed.toLocaleString();
-  }
-
-  function formatLatency(value?: number): string {
-    if (value == null || value < 0) return "-";
-    return `${value} ms`;
   }
 
   function formatProgress(progress?: number, status?: string): string {
@@ -135,12 +160,17 @@
       seen.add(current.ip);
       const merged: ClusterNode = {
         ...current,
+        id: incoming.id ?? current.id,
+        controlIp: incoming.controlIp ?? current.controlIp,
+        proxyIp: incoming.proxyIp ?? current.proxyIp,
         isLocal: incoming.isLocal,
         port22Open: incoming.port22Open,
-        port22LatencyMs: incoming.port22LatencyMs,
+        port22LatencyMs: incoming.port22LatencyMs ?? current.port22LatencyMs,
+        port22Error: incoming.port22Error ?? current.port22Error,
         sshOk: incoming.sshOk,
-        sshLatencyMs: incoming.sshLatencyMs,
-        error: incoming.error,
+        sshLatencyMs: incoming.sshLatencyMs ?? current.sshLatencyMs,
+        sshError: incoming.sshError ?? current.sshError,
+        error: incoming.error ?? current.error,
       };
       if (includeSet.has("metrics")) {
         merged.cpu = incoming.cpu;
@@ -171,6 +201,11 @@
       overall: next.overall,
       summary: next.summary,
       errors: next.errors,
+      execMode: next.execMode ?? state.execMode,
+      connectivityMode: next.connectivityMode ?? state.connectivityMode,
+      cacheState: next.cacheState ?? state.cacheState,
+      cacheAgeMs: next.cacheAgeMs ?? state.cacheAgeMs,
+      timingsMs: next.timingsMs ?? state.timingsMs,
       nodes: mergedNodes,
       storage: includeSet.has("storage") ? next.storage : state.storage,
     };
@@ -189,25 +224,11 @@
     }
   }
 
-  type NodeMetricSummary = {
-    percent: number | null;
-    label: string;
-    error?: string;
-  };
-
   function clampPercent(value?: number | null): number {
     if (value == null || Number.isNaN(value)) return 0;
     if (value < 0) return 0;
     if (value > 100) return 100;
     return value;
-  }
-
-  function formatMiB(value?: number): string {
-    if (value == null || value < 0) return "-";
-    const gib = value / 1024;
-    if (gib >= 100) return `${Math.round(gib)} GiB`;
-    if (gib >= 10) return `${gib.toFixed(1)} GiB`;
-    return `${gib.toFixed(2)} GiB`;
   }
 
   function buildCpuSummary(node: ClusterStatusState["nodes"][number]): NodeMetricSummary {
@@ -252,21 +273,70 @@
     return { percent: avg, label: `${avg}% (${utils.length} GPU)` };
   }
 
-  function buildVramSummary(node: ClusterStatusState["nodes"][number]): NodeMetricSummary {
-    if (node.gpu?.error) {
-      return { percent: null, label: "-", error: node.gpu.error };
+  function applySettingsToForm(next: ClusterSettingsState): void {
+    clusterSettings = next;
+    settingsExecMode = (next.requestedExecMode || "auto") as "auto" | "local" | "agent";
+    settingsInventoryFile = next.inventoryFile || "";
+  }
+
+  async function loadClusterSettingsState(): Promise<void> {
+    settingsLoading = true;
+    settingsError = null;
+    try {
+      const next = await getClusterSettings();
+      applySettingsToForm(next);
+    } catch (e) {
+      settingsError = e instanceof Error ? e.message : String(e);
+    } finally {
+      settingsLoading = false;
     }
-    const devices = node.gpu?.devices || [];
-    if (devices.length === 0) {
-      return { percent: null, label: "sin GPU" };
+  }
+
+  async function saveClusterSettings(): Promise<void> {
+    settingsSaving = true;
+    settingsError = null;
+    settingsResult = null;
+    try {
+      const next = await setClusterSettings({
+        execMode: settingsExecMode,
+        inventoryFile: settingsInventoryFile.trim(),
+      });
+      applySettingsToForm(next);
+      settingsResult = `Cluster mode actualizado: ${next.execMode}`;
+      await refresh(true);
+    } catch (e) {
+      settingsError = e instanceof Error ? e.message : String(e);
+    } finally {
+      settingsSaving = false;
     }
-    const totalMiB = devices.reduce((sum, device) => sum + (device.totalMiB || 0), 0);
-    const usedMiB = devices.reduce((sum, device) => sum + (device.usedMiB || 0), 0);
-    if (totalMiB <= 0) {
-      return { percent: null, label: `N/A (${devices.length} GPU)` };
+  }
+
+  async function runWizardClusterSettings(): Promise<void> {
+    wizardSaving = true;
+    settingsError = null;
+    settingsResult = null;
+    try {
+      const next = await applyClusterWizard({
+        nodes: wizardNodes,
+        headNode: wizardHeadNode.trim(),
+        ethIf: wizardEthIf.trim(),
+        ibIf: wizardIbIf.trim(),
+        defaultSshUser: wizardDefaultSSHUser.trim(),
+        inventoryFile: wizardInventoryFile.trim(),
+      });
+      if (next.settings) {
+        applySettingsToForm(next.settings);
+      }
+      const wizardInfo = next.wizard;
+      settingsResult = wizardInfo?.inventoryFile
+        ? `Wizard aplicado. Inventory guardado en ${wizardInfo.inventoryFile}`
+        : "Wizard aplicado";
+      await refresh(true);
+    } catch (e) {
+      settingsError = e instanceof Error ? e.message : String(e);
+    } finally {
+      wizardSaving = false;
     }
-    const usage = Math.round((usedMiB / totalMiB) * 100);
-    return { percent: usage, label: `${usage}% (${formatMiB(usedMiB)} / ${formatMiB(totalMiB)})` };
   }
 
   async function loadDetails(
@@ -316,6 +386,9 @@
       });
       if (generation !== requestGeneration) return;
       mergeState(summary, []);
+      if (!wizardNodes && summary.nodes && summary.nodes.length > 0) {
+        wizardNodes = summary.nodes.map((node) => node.ip).join("\n");
+      }
       setSectionsLoading(["metrics", "storage", "dgx"], true);
       void loadDetails(["metrics", "storage"], generation, forceRefresh);
       void loadDetails(["dgx"], generation, forceRefresh);
@@ -397,6 +470,7 @@
   }
 
   onMount(() => {
+    void loadClusterSettingsState();
     void refresh(false);
     return () => {
       abortActiveRequests();
@@ -418,6 +492,84 @@
       </div>
     </div>
 
+    <div class="mt-3 rounded border border-card-border p-3 bg-background/40">
+      <div class="text-sm font-semibold text-txtmain">Cluster Connectivity Config</div>
+      <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+        <label class="text-xs text-txtsecondary">
+          Mode
+          <select class="input mt-1 w-full" bind:value={settingsExecMode} disabled={settingsSaving || settingsLoading}>
+            <option value="auto">auto (inventory => agent)</option>
+            <option value="local">local (autodiscover + ssh)</option>
+            <option value="agent">agent (inventory + agent API)</option>
+          </select>
+        </label>
+        <label class="text-xs text-txtsecondary md:col-span-2">
+          Inventory File
+          <input
+            class="input mt-1 w-full font-mono text-xs"
+            bind:value={settingsInventoryFile}
+            placeholder="/path/to/cluster-inventory.yaml"
+            disabled={settingsSaving || settingsLoading}
+          />
+        </label>
+      </div>
+      <div class="mt-2 flex items-center gap-2">
+        <button class="btn btn--sm" onclick={saveClusterSettings} disabled={settingsSaving || settingsLoading}>
+          {settingsSaving ? "Saving..." : "Save Cluster Config"}
+        </button>
+        {#if clusterSettings}
+          <span class="text-xs text-txtsecondary">
+            Effective mode: <span class="font-mono">{clusterSettings.execMode}</span>
+            {#if clusterSettings.inventoryFile}
+              · inventory: <span class="font-mono">{collapseHomePath(clusterSettings.inventoryFile)}</span>
+            {/if}
+          </span>
+        {/if}
+      </div>
+      <div class="mt-3 border-t border-card-border pt-3">
+        <div class="text-xs text-txtsecondary mb-2">Wizard rápido para generar inventory y activar mode=agent</div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <label class="text-xs text-txtsecondary md:col-span-2">
+            Nodes (IP/hostname por línea o coma)
+            <textarea class="input mt-1 w-full min-h-[90px] font-mono text-xs" bind:value={wizardNodes}></textarea>
+          </label>
+          <div class="grid grid-cols-1 gap-2">
+            <label class="text-xs text-txtsecondary">
+              Head Node
+              <input class="input mt-1 w-full font-mono text-xs" bind:value={wizardHeadNode} placeholder="192.168.8.121" />
+            </label>
+            <label class="text-xs text-txtsecondary">
+              Default SSH User
+              <input class="input mt-1 w-full font-mono text-xs" bind:value={wizardDefaultSSHUser} placeholder="csolutions_ai" />
+            </label>
+          </div>
+          <label class="text-xs text-txtsecondary">
+            RDMA ETH IF
+            <input class="input mt-1 w-full font-mono text-xs" bind:value={wizardEthIf} />
+          </label>
+          <label class="text-xs text-txtsecondary">
+            RDMA IB IF (comma separated)
+            <input class="input mt-1 w-full font-mono text-xs" bind:value={wizardIbIf} />
+          </label>
+          <label class="text-xs text-txtsecondary">
+            Inventory Output (optional)
+            <input class="input mt-1 w-full font-mono text-xs" bind:value={wizardInventoryFile} placeholder="cluster-inventory.yaml" />
+          </label>
+        </div>
+        <div class="mt-2">
+          <button class="btn btn--sm" onclick={runWizardClusterSettings} disabled={wizardSaving || settingsSaving || settingsLoading}>
+            {wizardSaving ? "Applying Wizard..." : "Apply Wizard"}
+          </button>
+        </div>
+      </div>
+      {#if settingsError}
+        <div class="mt-2 text-xs text-error break-words">{settingsError}</div>
+      {/if}
+      {#if settingsResult}
+        <div class="mt-2 text-xs text-green-300 break-words">{settingsResult}</div>
+      {/if}
+    </div>
+
     {#if state}
       <div class="mt-2 inline-flex items-center rounded border px-2 py-1 text-sm {overallClass(state.overall)}">
         {state.overall.toUpperCase()}
@@ -429,6 +581,10 @@
       </div>
       <div class="text-xs text-txtsecondary">
         Última comprobación: {formatTime(state.detectedAt)}
+      </div>
+      <div class="text-xs text-txtsecondary">
+        Modo: {state.execMode || "-"} · Conectividad: {state.connectivityMode || "-"} · Cache: {state.cacheState || "-"} (
+        {formatCacheAge(state.cacheAgeMs)}) · Total: {formatDurationMs(state.timingsMs?.total)}
       </div>
       {#if metricsLoading || storageLoading || dgxLoading}
         <div class="text-xs text-txtsecondary mt-1">
@@ -487,7 +643,7 @@
           <div class="text-txtsecondary text-xs uppercase">Nodos</div>
           <div>Total: {state.nodeCount}</div>
           <div>Remotos: {state.remoteCount}</div>
-          <div>SSH OK: {state.reachableBySsh}</div>
+          <div>{connectivityStatusLabel(state)}: {state.reachableBySsh}</div>
         </div>
       </div>
 
@@ -558,6 +714,9 @@
                     <div class="mt-1 h-2 rounded bg-surface border border-card-border overflow-hidden">
                       <div class="h-full bg-gradient-to-r from-amber-500 to-orange-400" style={`width: ${clampPercent(vram.percent)}%`}></div>
                     </div>
+                    {#if vram.note}
+                      <div class="text-txtsecondary mt-1">{vram.note}</div>
+                    {/if}
                   {/if}
                 </div>
               </div>
@@ -639,7 +798,7 @@
               <th class="text-left p-2 border-b border-card-border">Nodo</th>
               <th class="text-left p-2 border-b border-card-border">Rol</th>
               <th class="text-left p-2 border-b border-card-border">Port 22</th>
-              <th class="text-left p-2 border-b border-card-border">SSH BatchMode</th>
+              <th class="text-left p-2 border-b border-card-border">{connectivityProbeLabel(state)}</th>
               <th class="text-left p-2 border-b border-card-border">DGX Update</th>
               <th class="text-left p-2 border-b border-card-border">Acción</th>
               <th class="text-left p-2 border-b border-card-border">DGX Estado</th>
@@ -655,13 +814,13 @@
                   <span class={node.port22Open ? "text-green-300" : "text-error"}>
                     {node.port22Open ? "OK" : "FAIL"}
                   </span>
-                  <span class="text-xs text-txtsecondary ml-1">({formatLatency(node.port22LatencyMs)})</span>
+                  <span class="text-xs text-txtsecondary ml-1">({formatLatency(node.port22LatencyMs, node.isLocal)})</span>
                 </td>
                 <td class="p-2 border-b border-card-border">
                   <span class={node.sshOk ? "text-green-300" : "text-error"}>
                     {node.sshOk ? "OK" : "FAIL"}
                   </span>
-                  <span class="text-xs text-txtsecondary ml-1">({formatLatency(node.sshLatencyMs)})</span>
+                  <span class="text-xs text-txtsecondary ml-1">({formatLatency(node.sshLatencyMs, node.isLocal)})</span>
                 </td>
                 <td class="p-2 border-b border-card-border">
                   {#if node.dgx}
@@ -708,7 +867,19 @@
                     <span class="text-txtsecondary">-</span>
                   {/if}
                 </td>
-                <td class="p-2 border-b border-card-border break-words">{node.error || "-"}</td>
+                <td class="p-2 border-b border-card-border break-words">
+                  {#if node.error || node.port22Error || node.sshError}
+                    <div>{node.error || "-"}</div>
+                    {#if node.port22Error}
+                      <div class="text-xs text-txtsecondary">port22: {node.port22Error}</div>
+                    {/if}
+                    {#if node.sshError}
+                      <div class="text-xs text-txtsecondary">ssh: {node.sshError}</div>
+                    {/if}
+                  {:else}
+                    -
+                  {/if}
+                </td>
               </tr>
             {/each}
           </tbody>

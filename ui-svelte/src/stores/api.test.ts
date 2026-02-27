@@ -34,4 +34,25 @@ describe("getClusterStatus", () => {
       { signal: undefined }
     );
   });
+
+  it("keeps additive cluster metadata fields from backend payload", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        nodes: [],
+        execMode: "agent",
+        connectivityMode: "agent",
+        cacheState: "fresh",
+        cacheAgeMs: 12,
+        timingsMs: { autodiscover: 1, probe: 2, metrics: 3, storage: 4, dgx: 5, total: 6 },
+      }),
+    });
+
+    const result = await getClusterStatus();
+    expect(result.execMode).toBe("agent");
+    expect(result.connectivityMode).toBe("agent");
+    expect(result.cacheState).toBe("fresh");
+    expect(result.cacheAgeMs).toBe(12);
+    expect(result.timingsMs?.total).toBe(6);
+  });
 });

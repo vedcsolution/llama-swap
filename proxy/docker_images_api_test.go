@@ -1,6 +1,9 @@
 package proxy
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestParseDockerImagesOutput(t *testing.T) {
 	raw := `{"Repository":"llama-cpp-spark","Tag":"last","ID":"sha256:aaa","Digest":"<none>","CreatedSince":"2 hours ago","Size":"5.2GB"}
@@ -69,6 +72,61 @@ func TestPickLocalDockerImages_FallbackWhenLocalFails(t *testing.T) {
 	picked := pickLocalDockerImages(nodes, fallback)
 	if len(picked) != 1 || picked[0].Reference != "fallback:latest" {
 		t.Fatalf("expected fallback images, got %#v", picked)
+	}
+}
+
+func TestPickPrimaryDockerImages_UsesRemoteWhenLocalUnavailable(t *testing.T) {
+	fallback := []dockerImageInfo{{Reference: "fallback:latest"}}
+	nodes := []dockerNodeImages{
+		{NodeIP: "192.168.8.121", IsLocal: true, Error: "docker missing"},
+		{NodeIP: "192.168.8.122", IsLocal: false, Images: []dockerImageInfo{{Reference: "remote:latest"}}},
+	}
+
+	picked := pickPrimaryDockerImages(nodes, fallback)
+	if len(picked) != 1 || picked[0].Reference != "remote:latest" {
+		t.Fatalf("expected remote images, got %#v", picked)
+	}
+}
+
+func TestPickPrimaryDockerImages_ReturnsFallbackWhenNoReachableNodes(t *testing.T) {
+	fallback := []dockerImageInfo{{Reference: "fallback:latest"}}
+	nodes := []dockerNodeImages{
+		{NodeIP: "192.168.8.121", IsLocal: true, Error: "docker missing"},
+		{NodeIP: "192.168.8.122", IsLocal: false, Error: "ssh failed"},
+	}
+
+	picked := pickPrimaryDockerImages(nodes, fallback)
+	if len(picked) != 1 || picked[0].Reference != "fallback:latest" {
+		t.Fatalf("expected fallback images, got %#v", picked)
+	}
+}
+
+func TestClusterExecMode_AutoSwitchesToAgentWhenInventoryExists(t *testing.T) {
+	inventoryPath := writeTestClusterInventory(t)
+	t.Setenv(clusterExecModeEnv, "")
+	t.Setenv(clusterInventoryFileEnv, inventoryPath)
+	if got := clusterExecMode(); got != clusterExecModeAgent {
+		t.Fatalf("clusterExecMode() = %q, want %q", got, clusterExecModeAgent)
+	}
+}
+
+func TestClusterExecMode_DefaultsToLocalWithoutInventory(t *testing.T) {
+	temp := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(temp); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
+
+	t.Setenv(clusterExecModeEnv, "")
+	t.Setenv(clusterInventoryFileEnv, "")
+	if got := clusterExecMode(); got != clusterExecModeLocal {
+		t.Fatalf("clusterExecMode() = %q, want %q", got, clusterExecModeLocal)
 	}
 }
 

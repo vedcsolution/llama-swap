@@ -15,6 +15,230 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func TestProxyManager_ClusterStatus_ResponseIncludesMetaFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	pm := &ProxyManager{}
+	router.GET("/api/cluster/status", pm.apiGetClusterStatus)
+
+	now := time.Now()
+	pm.clusterStatusCacheEntries = map[string]clusterStatusCacheEntry{
+		string(clusterStatusViewSummary): {
+			State: clusterStatusState{
+				AutodiscoverPath: "/tmp/autodiscover.sh",
+				DetectedAt:       now.UTC().Format(time.RFC3339),
+				LocalIP:          "192.168.8.121",
+				CIDR:             "192.168.8.121/24",
+				EthIF:            "eth0",
+				IbIF:             "ib0",
+				NodeCount:        2,
+				RemoteCount:      1,
+				ReachableBySSH:   2,
+				Overall:          "healthy",
+				Summary:          "Cluster OK",
+				Nodes: []clusterNodeStatus{
+					{IP: "192.168.8.121", IsLocal: true, Port22Open: true, SSHOK: true},
+					{IP: "192.168.8.138", IsLocal: false, Port22Open: true, SSHOK: true, SSHLatency: clusterInt64Ptr(7)},
+				},
+			},
+			Timings: clusterStatusTimings{
+				Autodiscover: 11 * time.Millisecond,
+				Probe:        22 * time.Millisecond,
+				Total:        33 * time.Millisecond,
+			},
+			CachedAt:  now,
+			ExpiresAt: now.Add(time.Minute),
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/cluster/status?view=summary", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode json: %v", err)
+	}
+	if got, ok := payload["execMode"].(string); !ok || got != "local" {
+		t.Fatalf("execMode = %v, want local", payload["execMode"])
+	}
+	if got, ok := payload["connectivityMode"].(string); !ok || got != "ssh" {
+		t.Fatalf("connectivityMode = %v, want ssh", payload["connectivityMode"])
+	}
+	if got, ok := payload["cacheState"].(string); !ok || got != "fresh" {
+		t.Fatalf("cacheState = %v, want fresh", payload["cacheState"])
+	}
+	if _, ok := payload["cacheAgeMs"]; !ok {
+		t.Fatalf("cacheAgeMs missing in payload: %v", payload)
+	}
+	timingsRaw, ok := payload["timingsMs"].(map[string]any)
+	if !ok {
+		t.Fatalf("timingsMs missing or invalid: %v", payload["timingsMs"])
+	}
+	for _, key := range []string{"autodiscover", "probe", "metrics", "storage", "dgx", "total"} {
+		if _, ok := timingsRaw[key]; !ok {
+			t.Fatalf("timingsMs.%s missing: %v", key, timingsRaw)
+		}
+	}
+	if _, ok := payload["summary"].(string); !ok {
+		t.Fatalf("summary missing from payload: %v", payload)
+	}
+}
+
+func TestProxyManager_ClusterStatus_ConnectivityMode_LocalVsAgent(t *testing.T) {
+	testCases := []struct {
+		name         string
+		execMode     string
+		connectivity string
+	}{
+		{
+			name:         "local",
+			execMode:     "local",
+			connectivity: "ssh",
+		},
+		{
+			name:         "agent",
+			execMode:     "agent",
+			connectivity: "agent",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(clusterExecModeEnv, tc.execMode)
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
+			pm := &ProxyManager{}
+			router.GET("/api/cluster/status", pm.apiGetClusterStatus)
+			now := time.Now()
+			pm.clusterStatusCacheEntries = map[string]clusterStatusCacheEntry{
+				string(clusterStatusViewSummary): {
+					State: clusterStatusState{
+						DetectedAt: now.UTC().Format(time.RFC3339),
+						Overall:    "healthy",
+						Summary:    "ok",
+						Nodes:      []clusterNodeStatus{{IP: "127.0.0.1", IsLocal: true, Port22Open: true, SSHOK: true}},
+					},
+					CachedAt:  now,
+					ExpiresAt: now.Add(time.Minute),
+				},
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/api/cluster/status?view=summary", nil)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+
+			var payload map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+				t.Fatalf("decode json: %v", err)
+			}
+			if got := payload["connectivityMode"]; got != tc.connectivity {
+				t.Fatalf("connectivityMode = %v, want %s", got, tc.connectivity)
+			}
+		})
+	}
+}
+
+func TestProxyManager_ClusterStatus_Port22Latency_ZeroIsSerialized(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	pm := &ProxyManager{}
+	router.GET("/api/cluster/status", pm.apiGetClusterStatus)
+
+	now := time.Now()
+	pm.clusterStatusCacheEntries = map[string]clusterStatusCacheEntry{
+		string(clusterStatusViewSummary): {
+			State: clusterStatusState{
+				DetectedAt: now.UTC().Format(time.RFC3339),
+				Overall:    "healthy",
+				Summary:    "ok",
+				Nodes: []clusterNodeStatus{
+					{
+						IP:            "192.168.8.138",
+						IsLocal:       false,
+						Port22Open:    true,
+						Port22Latency: clusterInt64Ptr(0),
+						SSHOK:         true,
+						SSHLatency:    clusterInt64Ptr(0),
+					},
+				},
+			},
+			CachedAt:  now,
+			ExpiresAt: now.Add(time.Minute),
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/cluster/status?view=summary", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode json: %v", err)
+	}
+	nodes, ok := payload["nodes"].([]any)
+	if !ok || len(nodes) != 1 {
+		t.Fatalf("nodes missing or invalid: %v", payload["nodes"])
+	}
+	node, ok := nodes[0].(map[string]any)
+	if !ok {
+		t.Fatalf("invalid node payload: %v", nodes[0])
+	}
+	if got, ok := node["port22LatencyMs"]; !ok || got != float64(0) {
+		t.Fatalf("port22LatencyMs = %v, want 0", node["port22LatencyMs"])
+	}
+	if got, ok := node["sshLatencyMs"]; !ok || got != float64(0) {
+		t.Fatalf("sshLatencyMs = %v, want 0", node["sshLatencyMs"])
+	}
+}
+
+func TestProxyManager_ClusterStatus_GPUQuality_UtilOnlyWhenMemoryUnknown(t *testing.T) {
+	temp := t.TempDir()
+	scriptPath := filepath.Join(temp, "nvidia-smi")
+	script := `#!/bin/bash
+if [[ "$1" == "--query-gpu=utilization.gpu,memory.total,memory.used,memory.free" ]]; then
+  echo "87, N/A, N/A, N/A"
+  exit 0
+fi
+if [[ "$1" == "-L" ]]; then
+  echo "GPU 0: Fake GPU"
+  exit 0
+fi
+echo "unexpected args: $*" >&2
+exit 1
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake nvidia-smi: %v", err)
+	}
+	t.Setenv("PATH", temp+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	devices, quality, err := queryNodeGPUMemory(context.Background(), "127.0.0.1", true)
+	if err != nil {
+		t.Fatalf("queryNodeGPUMemory error: %v", err)
+	}
+	if quality != "util_only" {
+		t.Fatalf("quality = %q, want util_only", quality)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("devices len = %d, want 1", len(devices))
+	}
+	if devices[0].UtilizationPct == nil || *devices[0].UtilizationPct != 87 {
+		t.Fatalf("utilizationPct = %v, want 87", devices[0].UtilizationPct)
+	}
+	if devices[0].MemoryKnown == nil || *devices[0].MemoryKnown {
+		t.Fatalf("memoryKnown = %v, want false", devices[0].MemoryKnown)
+	}
+}
+
 func TestClusterAutodiscoverPath_PrefersEnv(t *testing.T) {
 	temp := t.TempDir()
 	envPath := filepath.Join(temp, "custom-autodiscover.sh")
