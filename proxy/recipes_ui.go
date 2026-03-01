@@ -206,6 +206,14 @@ type upsertRecipeModelRequest struct {
 	ShmSizeGb             int      `json:"shmSizeGb,omitempty"`      // Shared memory size in GB
 }
 
+type vllmRecipeCommandMacroRefs struct {
+	runtimeCacheLocalAssignment  string
+	runtimeCacheRemoteAssignment string
+	clusterResetPrefix           string
+	cmdStop                      string
+	remoteCmdStop                string
+}
+
 func appendNonPrivilegedRecipeArgs(parts []string, req upsertRecipeModelRequest) []string {
 	if !req.NonPrivileged {
 		return parts
@@ -315,6 +323,32 @@ type recipeSourceCreateRequest struct {
 	RecipeRef string `json:"recipeRef"`
 	Content   string `json:"content"`
 	Overwrite bool   `json:"overwrite"`
+}
+
+type recipeSourceSyncDefaultsRequest struct {
+	RecipeRef string `json:"recipeRef"`
+}
+
+type recipeDeleteModelResponse struct {
+	DeletedModelID   string        `json:"deletedModelId"`
+	CascadeRecipe    bool          `json:"cascadeRecipe"`
+	DeletedRecipeRef string        `json:"deletedRecipeRef,omitempty"`
+	DeletedRecipePath string       `json:"deletedRecipePath,omitempty"`
+	PurgedModelIDs   []string      `json:"purgedModelIds"`
+	State            RecipeUIState `json:"state"`
+}
+
+type recipeDeleteSourceResponse struct {
+	DeletedRecipeRef  string        `json:"deletedRecipeRef"`
+	DeletedRecipePath string        `json:"deletedRecipePath"`
+	PurgedModelIDs    []string      `json:"purgedModelIds"`
+	State             RecipeUIState `json:"state"`
+}
+
+type recipeSourceSyncDefaultsResponse struct {
+	RecipeRef       string        `json:"recipeRef"`
+	UpdatedModelIDs []string      `json:"updatedModelIds"`
+	State           RecipeUIState `json:"state"`
 }
 
 func (pm *ProxyManager) apiGetRecipeState(c *gin.Context) {
@@ -989,10 +1023,6 @@ func (pm *ProxyManager) apiSaveRecipeSource(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if err := pm.syncManagedModelsWithRecipeDefaults(c.Request.Context(), state.RecipeRef); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
 	pm.syncRecipesToClusterAsync("save_recipe")
 	c.JSON(http.StatusOK, state)
 }
@@ -1026,6 +1056,62 @@ func (pm *ProxyManager) apiCreateRecipeSource(c *gin.Context) {
 	}
 	pm.syncRecipesToClusterAsync("create_recipe")
 	c.JSON(http.StatusOK, state)
+}
+
+func queryBoolDefaultFalse(raw string) bool {
+	if parsed, ok := parseAnyBool(strings.TrimSpace(raw)); ok {
+		return parsed
+	}
+	return false
+}
+
+func (pm *ProxyManager) apiDeleteRecipeSource(c *gin.Context) {
+	recipeRef := strings.TrimSpace(c.Query("recipeRef"))
+	if recipeRef == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "recipeRef is required"})
+		return
+	}
+	purgeManaged := queryBoolDefaultFalse(c.Query("purgeManaged"))
+
+	resp, err := pm.deleteRecipeSource(recipeRef, purgeManaged)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	pm.syncRecipesToClusterAsync("delete_recipe")
+	c.JSON(http.StatusOK, resp)
+}
+
+func (pm *ProxyManager) apiSyncRecipeSourceDefaults(c *gin.Context) {
+	var req recipeSourceSyncDefaultsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+		return
+	}
+
+	recipeRef := strings.TrimSpace(req.RecipeRef)
+	if recipeRef == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "recipeRef is required"})
+		return
+	}
+
+	updatedModelIDs, err := pm.syncManagedModelsWithRecipeDefaultsDetailed(c.Request.Context(), recipeRef)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	state, err := pm.buildRecipeUIState()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, recipeSourceSyncDefaultsResponse{
+		RecipeRef:       recipeRef,
+		UpdatedModelIDs: updatedModelIDs,
+		State:           state,
+	})
 }
 
 func (pm *ProxyManager) syncRecipesToClusterAsync(reason string) {
@@ -1096,13 +1182,27 @@ func (pm *ProxyManager) apiDeleteRecipeModel(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "model id is required"})
 		return
 	}
+	cascadeRecipe := queryBoolDefaultFalse(c.Query("cascadeRecipe"))
 
-	state, err := pm.deleteRecipeModel(modelID)
+	if !cascadeRecipe {
+		state, err := pm.deleteRecipeModel(modelID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, state)
+		return
+	}
+
+	resp, err := pm.deleteRecipeModelCascade(modelID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, state)
+	if strings.TrimSpace(resp.DeletedRecipeRef) != "" {
+		pm.syncRecipesToClusterAsync("delete_recipe_cascade")
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (pm *ProxyManager) buildRecipeUIState() (RecipeUIState, error) {
@@ -1119,6 +1219,16 @@ func (pm *ProxyManager) buildRecipeUIState() (RecipeUIState, error) {
 	root, err := loadConfigRawMap(configPath)
 	if err != nil {
 		return RecipeUIState{}, err
+	}
+	removedOrphans := pruneOrphanManagedRecipeModels(root, catalogByID)
+	if len(removedOrphans) > 0 {
+		if err := writeConfigRawMap(configPath, root); err != nil {
+			return RecipeUIState{}, err
+		}
+		if conf, err := config.LoadConfig(configPath); err == nil {
+			pm.applyConfigAndSyncProcessGroups(normalizeLegacyVLLMConfigCommands(conf))
+		}
+		pm.proxyLogger.Infof("pruned %d orphan managed recipe models from config: %s", len(removedOrphans), strings.Join(removedOrphans, ", "))
 	}
 
 	modelsMap := getMap(root, "models")
@@ -1146,6 +1256,47 @@ func (pm *ProxyManager) buildRecipeUIState() (RecipeUIState, error) {
 		Models:      models,
 		Groups:      groupNames,
 	}, nil
+}
+
+func pruneOrphanManagedRecipeModels(root map[string]any, catalogByID map[string]RecipeCatalogItem) []string {
+	if len(catalogByID) == 0 {
+		return nil
+	}
+	modelsMap := getMap(root, "models")
+	groupsMap := getMap(root, "groups")
+
+	removed := make([]string, 0)
+	for modelID, raw := range modelsMap {
+		modelMap, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		rm, ok := toRecipeManagedModel(modelID, modelMap, groupsMap)
+		if !ok {
+			continue
+		}
+		if !rm.Managed {
+			continue
+		}
+		ref := strings.TrimSpace(rm.RecipeRef)
+		if ref == "" {
+			continue
+		}
+		if _, ok := catalogByID[ref]; ok {
+			continue
+		}
+		delete(modelsMap, modelID)
+		removeModelFromAllGroups(groupsMap, modelID)
+		removed = append(removed, modelID)
+	}
+
+	if len(removed) == 0 {
+		return nil
+	}
+	sort.Strings(removed)
+	root["models"] = modelsMap
+	root["groups"] = groupsMap
+	return removed
 }
 
 func (pm *ProxyManager) recipeBackendState() RecipeBackendState {
@@ -1350,6 +1501,11 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 		mergeVLLMRuntimeCacheExtraDockerArgs("", "${user_home}"),
 		false,
 	)
+	runtimeCachePolicyRemoteAssignment := vllmRuntimeCacheAssignment(
+		mergeVLLMRuntimeCacheExtraDockerArgs("", "${user_home}"),
+		true,
+	)
+	var vllmMacroRefs vllmRecipeCommandMacroRefs
 
 	// If custom container specified, update the recipe file
 	customContainer := strings.TrimSpace(req.ContainerImage)
@@ -1391,6 +1547,15 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 	if strings.TrimSpace(containerImageToStore) == "" {
 		containerImageToStore = strings.TrimSpace(catalogRecipe.ContainerImage)
 	}
+	if backendKind == "vllm" {
+		containerImageToStore = normalizeContainerImageRef(containerImageToStore)
+		if containerImageToStore == "" {
+			containerImageToStore = "vllm-node:latest"
+		}
+		vllmMacroRefs = ensureVLLMRecipeCommandMacros(root, recipeBackendDir, containerImageToStore, singleNodeSelection)
+		runtimeCachePolicyAssignment = vllmMacroRefs.runtimeCacheLocalAssignment
+		runtimeCachePolicyRemoteAssignment = vllmMacroRefs.runtimeCacheRemoteAssignment
+	}
 
 	// In hot-swap mode we keep container/runtime alive, but force-stop any
 	// active serve process before launching a new model to avoid stale state.
@@ -1401,23 +1566,35 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 	// as if it were a healthy multi-node Ray cluster.
 	clusterResetPrefix := ""
 	if !hotSwap && mode == "cluster" && backendKind == "vllm" {
-		clusterResetPrefix = buildVLLMClusterResetExpr(recipeBackendDir, containerImageToStore)
+		if strings.TrimSpace(vllmMacroRefs.clusterResetPrefix) != "" {
+			clusterResetPrefix = vllmMacroRefs.clusterResetPrefix
+		} else {
+			clusterResetPrefix = buildVLLMClusterResetExpr(recipeBackendDir, containerImageToStore)
+		}
 	}
 
 	// cmdStop is used by "Unload" / "Unload All" and must stop only the
 	// model runtime without tearing down cluster nodes.
 	cmdStopExpr := hotSwapStopExpr
+	cmdStopCommand := fmt.Sprintf("bash -lc '%s'", cmdStopExpr)
 	stopPrefix := ""
 	if hotSwap {
 		stopPrefix = hotSwapStopExpr + "; "
 	}
 	if singleNodeSelection != "" {
-		remoteStopInner := "bash -lc " + strconv.Quote(cmdStopExpr)
-		cmdStopExpr = fmt.Sprintf(
-			"exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no %s %s",
-			quoteForCommand(singleNodeSelection),
-			strconv.Quote(remoteStopInner),
-		)
+		if !hotSwap && strings.TrimSpace(vllmMacroRefs.remoteCmdStop) != "" {
+			cmdStopCommand = vllmMacroRefs.remoteCmdStop
+		} else {
+			remoteStopInner := "bash -lc " + strconv.Quote(cmdStopExpr)
+			cmdStopExpr = fmt.Sprintf(
+				"exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no %s %s",
+				quoteForCommand(singleNodeSelection),
+				strconv.Quote(remoteStopInner),
+			)
+			cmdStopCommand = fmt.Sprintf("bash -lc '%s'", cmdStopExpr)
+		}
+	} else if !hotSwap && strings.TrimSpace(vllmMacroRefs.cmdStop) != "" {
+		cmdStopCommand = vllmMacroRefs.cmdStop
 	}
 
 	runner := ""
@@ -1446,7 +1623,7 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 
 		var remoteCmdParts []string
 		if runtimeCachePolicyInCommand {
-			remoteCmdParts = append(remoteCmdParts, runtimeCachePolicyAssignment, " ")
+			remoteCmdParts = append(remoteCmdParts, runtimeCachePolicyRemoteAssignment, " ")
 		}
 		remoteCmdParts = append(remoteCmdParts, "exec ", runner, " ", quoteForCommand(resolvedRecipeRef), " --solo")
 		if tp > 0 {
@@ -1501,7 +1678,7 @@ func (pm *ProxyManager) upsertRecipeModel(parentCtx context.Context, req upsertR
 	}
 
 	modelEntry["cmd"] = cmd
-	modelEntry["cmdStop"] = fmt.Sprintf("bash -lc '%s'", cmdStopExpr)
+	modelEntry["cmdStop"] = cmdStopCommand
 
 	meta := getMap(existing, "metadata")
 	if len(meta) == 0 {
@@ -1597,6 +1774,314 @@ func (pm *ProxyManager) deleteRecipeModel(modelID string) (RecipeUIState, error)
 		pm.applyConfigAndSyncProcessGroups(normalizeLegacyVLLMConfigCommands(conf))
 	}
 	return pm.buildRecipeUIState()
+}
+
+func recipeRefMatchesValue(modelRecipeRef, targetRecipeRef string) bool {
+	modelKey := normalizeRecipeRefKey(modelRecipeRef)
+	targetKey := normalizeRecipeRefKey(targetRecipeRef)
+	if modelKey == "" || targetKey == "" {
+		return false
+	}
+	return modelKey == targetKey || filepath.Base(modelKey) == filepath.Base(targetKey)
+}
+
+func purgeManagedModelsByRecipe(root map[string]any, recipeRef string, item *RecipeCatalogItem) []string {
+	modelsMap := getMap(root, "models")
+	groupsMap := getMap(root, "groups")
+
+	purged := make([]string, 0)
+	for modelID, raw := range modelsMap {
+		modelMap, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		rm, ok := toRecipeManagedModel(modelID, modelMap, groupsMap)
+		if !ok || !rm.Managed {
+			continue
+		}
+
+		matches := false
+		if item != nil {
+			matches = recipeRefMatchesItem(rm.RecipeRef, *item)
+		} else {
+			matches = recipeRefMatchesValue(rm.RecipeRef, recipeRef)
+		}
+		if !matches {
+			continue
+		}
+
+		delete(modelsMap, modelID)
+		removeModelFromAllGroups(groupsMap, modelID)
+		purged = append(purged, modelID)
+	}
+
+	if len(purged) > 0 {
+		sort.Strings(purged)
+		root["models"] = modelsMap
+		root["groups"] = groupsMap
+	}
+	return purged
+}
+
+func removeModelEntryFromConfig(root map[string]any, modelID string) bool {
+	modelsMap := getMap(root, "models")
+	if _, ok := modelsMap[modelID]; !ok {
+		return false
+	}
+	delete(modelsMap, modelID)
+	root["models"] = modelsMap
+
+	groupsMap := getMap(root, "groups")
+	removeModelFromAllGroups(groupsMap, modelID)
+	root["groups"] = groupsMap
+	return true
+}
+
+func (pm *ProxyManager) writeRecipeConfigAndApply(configPath string, root map[string]any) error {
+	if err := writeConfigRawMap(configPath, root); err != nil {
+		return err
+	}
+	if conf, err := config.LoadConfig(configPath); err == nil {
+		pm.applyConfigAndSyncProcessGroups(normalizeLegacyVLLMConfigCommands(conf))
+	}
+	return nil
+}
+
+func recipeDeleteCandidatesFromRef(recipeRef string) ([]string, error) {
+	recipeRef = strings.TrimSpace(recipeRef)
+	if recipeRef == "" {
+		return nil, errors.New("recipeRef is required")
+	}
+	if strings.Contains(recipeRef, "..") {
+		return nil, errors.New("recipeRef cannot contain '..'")
+	}
+
+	refPath := filepath.ToSlash(strings.Trim(recipeRef, "/"))
+	if refPath == "" {
+		return nil, errors.New("recipeRef is required")
+	}
+	relPath := filepath.Clean(filepath.FromSlash(refPath))
+	if relPath == "." || relPath == string(os.PathSeparator) {
+		return nil, errors.New("invalid recipeRef")
+	}
+	if strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
+		return nil, errors.New("recipeRef must be relative to recipes dir")
+	}
+
+	primaryDir := strings.TrimSpace(recipesCatalogPrimaryDir())
+	if primaryDir == "" {
+		return nil, errors.New("recipes catalog directory not found")
+	}
+	primaryDir = filepath.Clean(primaryDir)
+
+	basePath := filepath.Join(primaryDir, relPath)
+	basePath = filepath.Clean(basePath)
+	prefix := primaryDir + string(os.PathSeparator)
+	if basePath != primaryDir && !strings.HasPrefix(basePath, prefix) {
+		return nil, errors.New("recipe path escapes recipes directory")
+	}
+
+	ext := strings.ToLower(filepath.Ext(basePath))
+	switch ext {
+	case ".yaml", ".yml":
+		return []string{basePath}, nil
+	default:
+		return []string{basePath + ".yaml", basePath + ".yml"}, nil
+	}
+}
+
+func deleteRecipeFileByRef(recipeRef string, item *RecipeCatalogItem) (string, error) {
+	candidates := make([]string, 0, 3)
+	if item != nil {
+		p := strings.TrimSpace(item.Path)
+		if p != "" {
+			candidates = append(candidates, p)
+		}
+	}
+	if recipeRef != "" {
+		derived, err := recipeDeleteCandidatesFromRef(recipeRef)
+		if err == nil {
+			candidates = append(candidates, derived...)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return "", nil
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	deletedPath := ""
+	for _, candidate := range candidates {
+		candidate = filepath.Clean(strings.TrimSpace(candidate))
+		if candidate == "" {
+			continue
+		}
+		if _, ok := seen[candidate]; ok {
+			continue
+		}
+		seen[candidate] = struct{}{}
+
+		err := os.Remove(candidate)
+		if err == nil {
+			if deletedPath == "" {
+				deletedPath = candidate
+			}
+			continue
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		return "", err
+	}
+
+	if deletedPath != "" {
+		return deletedPath, nil
+	}
+
+	// File may have been deleted externally already; return the first candidate
+	// as the canonical path to keep responses deterministic.
+	return candidates[0], nil
+}
+
+func (pm *ProxyManager) deleteRecipeSource(recipeRef string, purgeManaged bool) (recipeDeleteSourceResponse, error) {
+	recipeRef = strings.TrimSpace(recipeRef)
+	if recipeRef == "" {
+		return recipeDeleteSourceResponse{}, errors.New("recipeRef is required")
+	}
+
+	configPath, err := pm.getConfigPath()
+	if err != nil {
+		return recipeDeleteSourceResponse{}, err
+	}
+
+	root, err := loadConfigRawMap(configPath)
+	if err != nil {
+		return recipeDeleteSourceResponse{}, err
+	}
+	ensureRecipeMacros(root, configPath)
+
+	var item *RecipeCatalogItem
+	resolvedRef := recipeRef
+	if resolvedItem, err := resolveCatalogRecipeItem(recipeRef); err == nil {
+		item = &resolvedItem
+		if strings.TrimSpace(resolvedItem.Ref) != "" {
+			resolvedRef = strings.TrimSpace(resolvedItem.Ref)
+		}
+	}
+
+	deletedRecipePath, err := deleteRecipeFileByRef(resolvedRef, item)
+	if err != nil {
+		return recipeDeleteSourceResponse{}, fmt.Errorf("failed to delete recipe source: %w", err)
+	}
+
+	purgedModelIDs := []string{}
+	changedConfig := false
+	if purgeManaged {
+		purgedModelIDs = purgeManagedModelsByRecipe(root, resolvedRef, item)
+		if len(purgedModelIDs) > 0 {
+			changedConfig = true
+		}
+	}
+
+	if changedConfig {
+		if err := pm.writeRecipeConfigAndApply(configPath, root); err != nil {
+			return recipeDeleteSourceResponse{}, err
+		}
+	}
+
+	state, err := pm.buildRecipeUIState()
+	if err != nil {
+		return recipeDeleteSourceResponse{}, err
+	}
+
+	return recipeDeleteSourceResponse{
+		DeletedRecipeRef:  resolvedRef,
+		DeletedRecipePath: deletedRecipePath,
+		PurgedModelIDs:    purgedModelIDs,
+		State:             state,
+	}, nil
+}
+
+func (pm *ProxyManager) deleteRecipeModelCascade(modelID string) (recipeDeleteModelResponse, error) {
+	configPath, err := pm.getConfigPath()
+	if err != nil {
+		return recipeDeleteModelResponse{}, err
+	}
+
+	root, err := loadConfigRawMap(configPath)
+	if err != nil {
+		return recipeDeleteModelResponse{}, err
+	}
+	ensureRecipeMacros(root, configPath)
+
+	modelsMap := getMap(root, "models")
+	rawModel, ok := modelsMap[modelID]
+	if !ok {
+		return recipeDeleteModelResponse{}, fmt.Errorf("model %s not found", modelID)
+	}
+
+	modelMap, _ := rawModel.(map[string]any)
+	groupsMap := getMap(root, "groups")
+	managedModel, isRecipeModel := toRecipeManagedModel(modelID, modelMap, groupsMap)
+	recipeRef := strings.TrimSpace(managedModel.RecipeRef)
+	isManaged := isRecipeModel && managedModel.Managed && recipeRef != ""
+
+	if !isManaged {
+		if removed := removeModelEntryFromConfig(root, modelID); !removed {
+			return recipeDeleteModelResponse{}, fmt.Errorf("model %s not found", modelID)
+		}
+		if err := pm.writeRecipeConfigAndApply(configPath, root); err != nil {
+			return recipeDeleteModelResponse{}, err
+		}
+		state, err := pm.buildRecipeUIState()
+		if err != nil {
+			return recipeDeleteModelResponse{}, err
+		}
+		return recipeDeleteModelResponse{
+			DeletedModelID: modelID,
+			CascadeRecipe:  true,
+			PurgedModelIDs: []string{modelID},
+			State:          state,
+		}, nil
+	}
+
+	var item *RecipeCatalogItem
+	resolvedRef := recipeRef
+	if resolvedItem, err := resolveCatalogRecipeItem(recipeRef); err == nil {
+		item = &resolvedItem
+		if strings.TrimSpace(resolvedItem.Ref) != "" {
+			resolvedRef = strings.TrimSpace(resolvedItem.Ref)
+		}
+	}
+
+	deletedRecipePath, err := deleteRecipeFileByRef(resolvedRef, item)
+	if err != nil {
+		return recipeDeleteModelResponse{}, fmt.Errorf("failed to delete recipe source: %w", err)
+	}
+
+	purgedModelIDs := purgeManagedModelsByRecipe(root, resolvedRef, item)
+	if len(purgedModelIDs) == 0 {
+		_ = removeModelEntryFromConfig(root, modelID)
+		purgedModelIDs = []string{modelID}
+	}
+
+	if err := pm.writeRecipeConfigAndApply(configPath, root); err != nil {
+		return recipeDeleteModelResponse{}, err
+	}
+
+	state, err := pm.buildRecipeUIState()
+	if err != nil {
+		return recipeDeleteModelResponse{}, err
+	}
+
+	return recipeDeleteModelResponse{
+		DeletedModelID:    modelID,
+		CascadeRecipe:     true,
+		DeletedRecipeRef:  resolvedRef,
+		DeletedRecipePath: deletedRecipePath,
+		PurgedModelIDs:    purgedModelIDs,
+		State:             state,
+	}, nil
 }
 
 func recipesBackendDir() string {
@@ -3312,23 +3797,28 @@ func recipeRefMatchesItem(modelRecipeRef string, item RecipeCatalogItem) bool {
 }
 
 func (pm *ProxyManager) syncManagedModelsWithRecipeDefaults(parentCtx context.Context, recipeRef string) error {
+	_, err := pm.syncManagedModelsWithRecipeDefaultsDetailed(parentCtx, recipeRef)
+	return err
+}
+
+func (pm *ProxyManager) syncManagedModelsWithRecipeDefaultsDetailed(parentCtx context.Context, recipeRef string) ([]string, error) {
 	item, err := resolveCatalogRecipeItem(recipeRef)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	state, err := pm.buildRecipeUIState()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	configPath, err := pm.getConfigPath()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	root, err := loadConfigRawMap(configPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	desiredTP := item.DefaultTensorParallel
@@ -3336,7 +3826,7 @@ func (pm *ProxyManager) syncManagedModelsWithRecipeDefaults(parentCtx context.Co
 		desiredTP = 1
 	}
 
-	updated := 0
+	updatedModelIDs := make([]string, 0)
 	for _, model := range state.Models {
 		if !recipeRefMatchesItem(model.RecipeRef, item) {
 			continue
@@ -3356,7 +3846,10 @@ func (pm *ProxyManager) syncManagedModelsWithRecipeDefaults(parentCtx context.Co
 			Group:                 model.Group,
 			Unlisted:              model.Unlisted,
 			BenchyTrustRemoteCode: model.BenchyTrustRemoteCode,
-			ContainerImage:        model.ContainerImage,
+			// When syncing after editing recipe source, recipe YAML should be the
+			// source of truth for container image. Passing ContainerImage here can
+			// rewrite "container:" back to stale config metadata.
+			ContainerImage:        "",
 			NonPrivileged:         model.NonPrivileged,
 			MemLimitGb:            model.MemLimitGb,
 			MemSwapLimitGb:        model.MemSwapLimitGb,
@@ -3383,15 +3876,16 @@ func (pm *ProxyManager) syncManagedModelsWithRecipeDefaults(parentCtx context.Co
 		}
 
 		if _, err := pm.upsertRecipeModel(parentCtx, req); err != nil {
-			return fmt.Errorf("failed to refresh model %s from recipe %s: %w", model.ModelID, item.Ref, err)
+			return nil, fmt.Errorf("failed to refresh model %s from recipe %s: %w", model.ModelID, item.Ref, err)
 		}
-		updated++
+		updatedModelIDs = append(updatedModelIDs, model.ModelID)
 	}
 
-	if updated > 0 {
-		pm.proxyLogger.Infof("recipe save refreshed %d model(s) from %s (default TP=%d)", updated, item.Ref, desiredTP)
+	if len(updatedModelIDs) > 0 {
+		pm.proxyLogger.Infof("recipe save refreshed %d model(s) from %s (default TP=%d)", len(updatedModelIDs), item.Ref, desiredTP)
 	}
-	return nil
+	sort.Strings(updatedModelIDs)
+	return updatedModelIDs, nil
 }
 
 func (pm *ProxyManager) createRecipeSourceState(recipeRef string, content string, overwrite bool) (recipeSourceState, error) {
@@ -3505,12 +3999,16 @@ func loadConfigRawMap(configPath string) (map[string]any, error) {
 }
 
 func writeConfigRawMap(configPath string, root map[string]any) error {
-	rendered, err := yaml.Marshal(root)
+	rendered, err := marshalConfigRawMap(root)
 	if err != nil {
 		return err
 	}
-	if _, err := config.LoadConfigFromReader(bytes.NewReader(rendered)); err != nil {
+	loaded, err := config.LoadConfigFromReader(bytes.NewReader(rendered))
+	if err != nil {
 		return fmt.Errorf("generated config is invalid: %w", err)
+	}
+	if err := validateConfigModelShellCommands(normalizeLegacyVLLMConfigCommands(loaded)); err != nil {
+		return fmt.Errorf("generated config has invalid launcher command: %w", err)
 	}
 
 	tmp := configPath + ".tmp"
@@ -3518,6 +4016,269 @@ func writeConfigRawMap(configPath string, root map[string]any) error {
 		return err
 	}
 	return os.Rename(tmp, configPath)
+}
+
+func validateConfigModelShellCommands(conf config.Config) error {
+	if len(conf.Models) == 0 {
+		return nil
+	}
+	bashPath, err := exec.LookPath("bash")
+	if err != nil {
+		// Best-effort validation: skip in environments without bash.
+		return nil
+	}
+
+	for modelID, modelCfg := range conf.Models {
+		if err := validateModelShellCommandSyntax(bashPath, modelID, "cmd", modelCfg.Cmd); err != nil {
+			return err
+		}
+		if err := validateModelShellCommandSyntax(bashPath, modelID, "cmdStop", modelCfg.CmdStop); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateModelShellCommandSyntax(bashPath, modelID, fieldName, command string) error {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return nil
+	}
+
+	args, err := config.SanitizeCommand(command)
+	if err != nil {
+		return fmt.Errorf("model %s %s: invalid shell command: %w", modelID, fieldName, err)
+	}
+	if len(args) < 3 || args[0] != "bash" || args[1] != "-lc" {
+		return nil
+	}
+
+	check := exec.Command(bashPath, "-n", "-c", args[2])
+	out, err := check.CombinedOutput()
+	if err != nil {
+		details := strings.TrimSpace(string(out))
+		if details == "" {
+			details = err.Error()
+		}
+		return fmt.Errorf("model %s %s: invalid bash -lc payload: %s", modelID, fieldName, details)
+	}
+	return nil
+}
+
+func marshalConfigRawMap(root map[string]any) ([]byte, error) {
+	rendered, err := yaml.Marshal(root)
+	if err != nil {
+		return nil, err
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(rendered, &doc); err != nil {
+		return nil, err
+	}
+	applyReadableCommandStyle(&doc)
+
+	var out bytes.Buffer
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if len(doc.Content) > 0 {
+		if err := enc.Encode(doc.Content[0]); err != nil {
+			_ = enc.Close()
+			return nil, err
+		}
+	} else {
+		if err := enc.Encode(map[string]any{}); err != nil {
+			_ = enc.Close()
+			return nil, err
+		}
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func applyReadableCommandStyle(node *yaml.Node) {
+	if node == nil {
+		return
+	}
+	switch node.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, child := range node.Content {
+			applyReadableCommandStyle(child)
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i]
+			val := node.Content[i+1]
+			if key.Kind == yaml.ScalarNode {
+				k := strings.TrimSpace(key.Value)
+				if (k == "cmd" || k == "cmdStop") && val.Kind == yaml.ScalarNode && val.Tag == "!!str" {
+					styleCommandScalar(val)
+				}
+			}
+			applyReadableCommandStyle(val)
+		}
+	}
+}
+
+func styleCommandScalar(node *yaml.Node) {
+	raw := node.Value
+	if strings.TrimSpace(raw) == "" {
+		return
+	}
+	if strings.Contains(raw, "\n") {
+		node.Style = yaml.LiteralStyle
+		return
+	}
+	// Keep short commands compact.
+	if len(raw) < 120 {
+		return
+	}
+	// Commands with escaped inner quotes (e.g. nested ssh bash -lc payloads)
+	// are sensitive to line-wrapping transforms.
+	if strings.Contains(raw, `\"`) {
+		node.Style = yaml.FoldedStyle
+		return
+	}
+
+	// Prefer a readable multi-line script layout for generated bash -lc payloads.
+	if pretty, ok := prettyFormatBashLC(raw); ok {
+		node.Value = pretty
+		node.Style = yaml.LiteralStyle
+		return
+	}
+
+	// Fallback for non-bash-lc long commands.
+	if len(raw) >= 120 {
+		node.Style = yaml.FoldedStyle
+	}
+}
+
+func prettyFormatBashLC(raw string) (string, bool) {
+	const prefix = "bash -lc '"
+	if !strings.HasPrefix(raw, prefix) || !strings.HasSuffix(raw, "'") {
+		return "", false
+	}
+	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(raw, prefix), "'"))
+	if inner == "" {
+		return "", false
+	}
+	statements := splitShellStatementsTopLevel(inner)
+	if len(statements) < 2 {
+		return "", false
+	}
+
+	lines := make([]string, 0, len(statements)+2)
+	for _, stmt := range statements {
+		current := strings.TrimSpace(stmt)
+		if current == "" {
+			continue
+		}
+		for {
+			lower := strings.ToLower(current)
+			switch {
+			case strings.HasPrefix(lower, "then "):
+				lines = append(lines, "then")
+				current = strings.TrimSpace(current[5:])
+				if current == "" {
+					break
+				}
+				continue
+			case strings.HasPrefix(lower, "else "):
+				lines = append(lines, "else")
+				current = strings.TrimSpace(current[5:])
+				if current == "" {
+					break
+				}
+				continue
+			case strings.HasPrefix(lower, "do "):
+				lines = append(lines, "do")
+				current = strings.TrimSpace(current[3:])
+				if current == "" {
+					break
+				}
+				continue
+			}
+			break
+		}
+		if current != "" {
+			lines = append(lines, current)
+		}
+	}
+	if len(lines) < 2 {
+		return "", false
+	}
+
+	indented := indentShellControlLines(lines)
+	return prefix + strings.Join(indented, "\n") + "'", true
+}
+
+func splitShellStatementsTopLevel(script string) []string {
+	statements := make([]string, 0, 8)
+	start := 0
+	inSingle := false
+	inDouble := false
+	escaped := false
+	parenDepth := 0
+
+	for i := 0; i < len(script); i++ {
+		ch := script[i]
+
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' && !inSingle {
+			escaped = true
+			continue
+		}
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+		if inSingle || inDouble {
+			continue
+		}
+		switch ch {
+		case '(':
+			parenDepth++
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case ';':
+			if parenDepth == 0 {
+				statements = append(statements, script[start:i])
+				start = i + 1
+			}
+		}
+	}
+	if start <= len(script) {
+		statements = append(statements, script[start:])
+	}
+	return statements
+}
+
+func indentShellControlLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	indent := 0
+	for _, line := range lines {
+		lower := strings.ToLower(strings.TrimSpace(line))
+		if lower == "fi" || lower == "done" || lower == "else" {
+			if indent > 0 {
+				indent--
+			}
+		}
+		out = append(out, strings.Repeat("  ", indent)+strings.TrimSpace(line))
+		if lower == "then" || lower == "do" || lower == "else" {
+			indent++
+		}
+	}
+	return out
 }
 
 func normalizeYAMLValue(v any) any {
@@ -3849,6 +4610,14 @@ func ensureVLLMRuntimeCachePolicyInCommand(cmd, userHome string) string {
 		}
 	}
 
+	// Some remote commands encode assignments as: VAR=\\\"value with spaces\\\".
+	// The generic assignment regex cannot parse that safely and may corrupt quoting.
+	if strings.Contains(workingCmd, `VLLM_SPARK_EXTRA_DOCKER_ARGS=\\\"`) {
+		if wrappedShell {
+			return "bash -lc " + quoteForShellLiteral(workingCmd)
+		}
+		return workingCmd
+	}
 	escapedRemote := strings.Contains(workingCmd, "\\\"exec ")
 	assignment := ""
 	if matched := vllmExtraDockerArgsAssignRe.FindString(workingCmd); matched != "" {
@@ -3876,7 +4645,9 @@ func ensureVLLMRuntimeCachePolicyInCommand(cmd, userHome string) string {
 	}
 
 	if wrappedShell {
-		return "bash -lc " + strconv.Quote(workingCmd)
+		// Preserve real newlines in multiline scripts.
+		// strconv.Quote would serialize them as literal "\n", which breaks bash -lc parsing.
+		return "bash -lc " + quoteForShellLiteral(workingCmd)
 	}
 
 	return workingCmd
@@ -4007,6 +4778,200 @@ func backendMacroExprForKind(root map[string]any, kind string, suffix string) (s
 		}
 	}
 	return "", false
+}
+
+func sanitizeMacroToken(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return "default"
+	}
+
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+
+	token := strings.Trim(b.String(), "_")
+	if token == "" {
+		return "default"
+	}
+	return token
+}
+
+func normalizeContainerImageRef(image string) string {
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return ""
+	}
+	if strings.Contains(image, "@") {
+		return image
+	}
+
+	lastSlash := strings.LastIndex(image, "/")
+	lastPart := image
+	if lastSlash >= 0 && lastSlash+1 < len(image) {
+		lastPart = image[lastSlash+1:]
+	}
+	if strings.Contains(lastPart, ":") {
+		return image
+	}
+	return image + ":latest"
+}
+
+func preferredVLLMClusterResetMacroName(containerImage string) string {
+	switch strings.TrimSpace(containerImage) {
+	case "vllm-node:latest":
+		return "vllm_cluster_reset_latest"
+	case "vllm-node-mxfp4:latest":
+		return "vllm_cluster_reset_mxfp4_latest"
+	default:
+		return "vllm_cluster_reset_" + sanitizeMacroToken(containerImage)
+	}
+}
+
+func preferredVLLMCmdStopMacroName(containerImage string) string {
+	switch strings.TrimSpace(containerImage) {
+	case "vllm-node:latest":
+		return "vllm_cmdstop_latest"
+	case "vllm-node-mxfp4:latest":
+		return "vllm_cmdstop_mxfp4_latest"
+	default:
+		return "vllm_cmdstop_" + sanitizeMacroToken(containerImage)
+	}
+}
+
+func preferredVLLMRemoteCmdStopMacroName(containerImage string, node string) string {
+	imagePart := ""
+	switch strings.TrimSpace(containerImage) {
+	case "vllm-node:latest":
+		imagePart = "latest"
+	case "vllm-node-mxfp4:latest":
+		imagePart = "mxfp4_latest"
+	default:
+		imagePart = sanitizeMacroToken(containerImage)
+	}
+	return "vllm_cmdstop_remote_" + imagePart + "_" + sanitizeMacroToken(node)
+}
+
+func ensureVLLMRuntimeCacheMacros(root map[string]any) {
+	macros := getMap(root, "macros")
+
+	if _, ok := macros["vllm_extra_docker_args"]; !ok {
+		macros["vllm_extra_docker_args"] = mergeVLLMRuntimeCacheExtraDockerArgs("", "${user_home}")
+	}
+
+	if _, ok := macros["vllm_extra_docker_args_escaped"]; !ok {
+		base := strings.TrimSpace(fmt.Sprintf("%v", macros["vllm_extra_docker_args"]))
+		if base != "" {
+			escaped := strings.ReplaceAll(base, `\`, `\\`)
+			escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+			macros["vllm_extra_docker_args_escaped"] = `\\\"` + escaped + `\\\"`
+		}
+	}
+
+	root["macros"] = macros
+}
+
+func ensureVLLMClusterResetMacro(root map[string]any, backendDir string, containerImage string) string {
+	backendDir = strings.TrimSpace(backendDir)
+	containerImage = strings.TrimSpace(containerImage)
+	if backendDir == "" || containerImage == "" {
+		return ""
+	}
+
+	macros := getMap(root, "macros")
+	name := preferredVLLMClusterResetMacroName(containerImage)
+	if _, ok := macros[name]; !ok {
+		expr := strings.TrimSpace(buildVLLMClusterResetExpr(backendDir, containerImage))
+		if expr != "" {
+			macros[name] = expr
+		}
+	}
+	root["macros"] = macros
+
+	if _, ok := macros[name]; ok {
+		// Force a statement separator after macro expansion. Some user-defined
+		// macros end with "fi" (no trailing ';'), so appending only a space can
+		// produce invalid shell like: "fi VLLM_SPARK_EXTRA_DOCKER_ARGS=...".
+		return "${" + name + "}\n"
+	}
+	return ""
+}
+
+func ensureVLLMCmdStopMacro(root map[string]any, containerImage string) string {
+	containerImage = strings.TrimSpace(containerImage)
+	if containerImage == "" {
+		return ""
+	}
+
+	macros := getMap(root, "macros")
+	name := preferredVLLMCmdStopMacroName(containerImage)
+	if _, ok := macros[name]; !ok {
+		macros[name] = fmt.Sprintf("bash -lc '%s'", buildVLLMStopExpr(containerImage))
+	}
+	root["macros"] = macros
+
+	if _, ok := macros[name]; ok {
+		return "${" + name + "}"
+	}
+	return ""
+}
+
+func ensureVLLMRemoteCmdStopMacro(root map[string]any, containerImage string, node string) string {
+	containerImage = strings.TrimSpace(containerImage)
+	node = strings.TrimSpace(node)
+	if containerImage == "" || node == "" {
+		return ""
+	}
+
+	macros := getMap(root, "macros")
+	name := preferredVLLMRemoteCmdStopMacroName(containerImage, node)
+	if _, ok := macros[name]; !ok {
+		stopInner := buildVLLMStopExpr(containerImage)
+		remoteStopInner := "bash -lc " + strconv.Quote(stopInner)
+		macros[name] = fmt.Sprintf(
+			"bash -lc 'exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no %s %s'",
+			quoteForCommand(node),
+			strconv.Quote(remoteStopInner),
+		)
+	}
+	root["macros"] = macros
+
+	if _, ok := macros[name]; ok {
+		return "${" + name + "}"
+	}
+	return ""
+}
+
+func ensureVLLMRecipeCommandMacros(root map[string]any, backendDir string, containerImage string, node string) vllmRecipeCommandMacroRefs {
+	refs := vllmRecipeCommandMacroRefs{
+		runtimeCacheLocalAssignment:  vllmRuntimeCacheAssignment(mergeVLLMRuntimeCacheExtraDockerArgs("", "${user_home}"), false),
+		runtimeCacheRemoteAssignment: vllmRuntimeCacheAssignment(mergeVLLMRuntimeCacheExtraDockerArgs("", "${user_home}"), true),
+	}
+
+	ensureVLLMRuntimeCacheMacros(root)
+	if hasMacro(root, "vllm_extra_docker_args") {
+		refs.runtimeCacheLocalAssignment = `VLLM_SPARK_EXTRA_DOCKER_ARGS="${vllm_extra_docker_args}"`
+	}
+	if hasMacro(root, "vllm_extra_docker_args_escaped") {
+		refs.runtimeCacheRemoteAssignment = "VLLM_SPARK_EXTRA_DOCKER_ARGS=${vllm_extra_docker_args_escaped}"
+	}
+
+	refs.clusterResetPrefix = ensureVLLMClusterResetMacro(root, backendDir, containerImage)
+	refs.cmdStop = ensureVLLMCmdStopMacro(root, containerImage)
+	if strings.TrimSpace(node) != "" {
+		refs.remoteCmdStop = ensureVLLMRemoteCmdStopMacro(root, containerImage, node)
+	}
+	return refs
 }
 
 func ensureRecipeMacros(root map[string]any, configPath string) {

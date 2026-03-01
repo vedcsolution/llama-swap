@@ -1,15 +1,22 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/mostlygeek/llama-swap/proxy/config"
 )
 
@@ -105,6 +112,90 @@ func TestRecipeManagedModelInCatalog(t *testing.T) {
 	}
 	if recipeManagedModelInCatalog(RecipeManagedModel{RecipeRef: "openai-gpt-oss-120b"}, catalog) {
 		t.Fatalf("unknown recipeRef should be filtered out")
+	}
+}
+
+func TestMarshalConfigRawMap_PrettyStylesLongCommands(t *testing.T) {
+	longCmd := "bash -lc 'echo one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo twentythree twentyfour twentyfive twentysix twentyseven twentyeight twentynine thirty'"
+	longStop := "bash -lc 'echo stop one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty'"
+
+	root := map[string]any{
+		"models": map[string]any{
+			"test-model": map[string]any{
+				"cmd":      longCmd,
+				"cmdStop":  longStop,
+				"proxy":    "http://127.0.0.1:9001",
+				"ttl":      0,
+				"aliases":  []any{},
+				"metadata": map[string]any{},
+			},
+		},
+	}
+
+	rendered, err := marshalConfigRawMap(root)
+	if err != nil {
+		t.Fatalf("marshalConfigRawMap() error: %v", err)
+	}
+
+	text := string(rendered)
+	if !strings.Contains(text, "cmd: >-") {
+		t.Fatalf("expected folded style for cmd, got:\n%s", text)
+	}
+	if !strings.Contains(text, "cmdStop: >-") {
+		t.Fatalf("expected folded style for cmdStop, got:\n%s", text)
+	}
+
+	conf, err := config.LoadConfigFromReader(bytes.NewReader(rendered))
+	if err != nil {
+		t.Fatalf("LoadConfigFromReader() error: %v\nrendered:\n%s", err, text)
+	}
+	got, _, ok := conf.FindConfig("test-model")
+	if !ok {
+		t.Fatalf("test-model not found after load")
+	}
+	if got.Cmd != longCmd {
+		t.Fatalf("cmd changed after round-trip\nwant: %q\ngot:  %q", longCmd, got.Cmd)
+	}
+	if got.CmdStop != longStop {
+		t.Fatalf("cmdStop changed after round-trip\nwant: %q\ngot:  %q", longStop, got.CmdStop)
+	}
+}
+
+func TestMarshalConfigRawMap_DoesNotPrettyFormatEscapedQuoteCommands(t *testing.T) {
+	remoteCmd := `bash -lc 'exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no 192.0.2.10 "bash -lc \"VLLM_SPARK_EXTRA_DOCKER_ARGS=\\\"-v /home/tester/.cache/torchinductor:/tmp/torchinductor_root -v /home/tester/.cache/nv/ComputeCache:/root/.nv/ComputeCache -e TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_root -e CUDA_CACHE_PATH=/root/.nv/ComputeCache -e TRITON_CACHE_DIR=/root/.triton/cache\\\" exec /tmp/run-recipe.sh sample --solo --port 6001\""'`
+
+	root := map[string]any{
+		"models": map[string]any{
+			"test-model-remote": map[string]any{
+				"cmd":      remoteCmd,
+				"proxy":    "http://127.0.0.1:9001",
+				"ttl":      0,
+				"aliases":  []any{},
+				"metadata": map[string]any{},
+			},
+		},
+	}
+
+	rendered, err := marshalConfigRawMap(root)
+	if err != nil {
+		t.Fatalf("marshalConfigRawMap() error: %v", err)
+	}
+
+	text := string(rendered)
+	if !strings.Contains(text, "cmd: >-") {
+		t.Fatalf("expected folded style for escaped-quote cmd, got:\n%s", text)
+	}
+
+	conf, err := config.LoadConfigFromReader(bytes.NewReader(rendered))
+	if err != nil {
+		t.Fatalf("LoadConfigFromReader() error: %v\nrendered:\n%s", err, text)
+	}
+	got, _, ok := conf.FindConfig("test-model-remote")
+	if !ok {
+		t.Fatalf("test-model-remote not found after load")
+	}
+	if got.Cmd != remoteCmd {
+		t.Fatalf("cmd changed after round-trip\nwant: %q\ngot:  %q", remoteCmd, got.Cmd)
 	}
 }
 
@@ -738,6 +829,45 @@ func TestProxyManager_NormalizeLegacyVLLMConfigCommands_LocalCommandHasValidShel
 	}
 }
 
+func TestProxyManager_NormalizeLegacyVLLMConfigCommands_MultilineCommandKeepsRealNewlines(t *testing.T) {
+	conf := config.Config{
+		Macros: config.MacroList{
+			{Name: "user_home", Value: "/home/tester"},
+		},
+		Models: map[string]config.ModelConfig{
+			"model-vllm": {
+				Cmd: "bash -lc 'if docker ps --format \"{{.Names}}\" | grep -q \"^vllm_node$\"\nthen\n  if ! docker exec vllm_node ray status >/dev/null 2>&1\n  then\n    (cd /tmp/backend && ./launch-cluster.sh -t vllm-node:latest stop >/dev/null 2>&1 || true)\n  fi\nfi\nexec /tmp/run-recipe.sh sample -n 192.0.2.10,192.0.2.11 --tp 2 --port 6001'",
+				Metadata: map[string]any{
+					recipeMetadataKey: map[string]any{
+						"backend_dir": "/opt/spark-vllm-docker",
+						"mode":        "cluster",
+					},
+				},
+			},
+		},
+	}
+
+	got := normalizeLegacyVLLMConfigCommands(conf)
+	cmd := got.Models["model-vllm"].Cmd
+
+	args, err := config.SanitizeCommand(cmd)
+	if err != nil {
+		t.Fatalf("SanitizeCommand(cmd): %v", err)
+	}
+	if len(args) < 3 || args[0] != "bash" || args[1] != "-lc" {
+		t.Fatalf("unexpected cmd args: %#v", args)
+	}
+	if strings.Contains(args[2], `\n`) {
+		t.Fatalf("expected real newlines in bash payload, found literal \\\\n: %q", args[2])
+	}
+
+	check := exec.Command("bash", "-n", "-c", args[2])
+	out, err := check.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cmd has invalid shell quoting: %v\ncmd=%s\nout=%s", err, cmd, strings.TrimSpace(string(out)))
+	}
+}
+
 func TestProxyManager_NormalizeLegacyVLLMConfigCommands_RemoteCommandHasValidShellQuoting(t *testing.T) {
 	conf := config.Config{
 		Macros: config.MacroList{
@@ -765,6 +895,50 @@ func TestProxyManager_NormalizeLegacyVLLMConfigCommands_RemoteCommandHasValidShe
 	}
 	if strings.Contains(cmd, `VLLM_SPARK_EXTRA_DOCKER_ARGS='`) {
 		t.Fatalf("unexpected single-quoted runtime cache assignment in remote command: %s", cmd)
+	}
+
+	args, err := config.SanitizeCommand(cmd)
+	if err != nil {
+		t.Fatalf("SanitizeCommand(cmd): %v", err)
+	}
+	if len(args) < 3 || args[0] != "bash" || args[1] != "-lc" {
+		t.Fatalf("unexpected cmd args: %#v", args)
+	}
+
+	check := exec.Command("bash", "-n", "-c", args[2])
+	out, err := check.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cmd has invalid shell quoting: %v\ncmd=%s\nout=%s", err, cmd, strings.TrimSpace(string(out)))
+	}
+}
+
+func TestProxyManager_NormalizeLegacyVLLMConfigCommands_RemoteCommandWithEscapedAssignmentUnchanged(t *testing.T) {
+	original := `bash -lc 'exec ssh -o BatchMode=yes -o StrictHostKeyChecking=no 192.0.2.10 "bash -lc \"VLLM_SPARK_EXTRA_DOCKER_ARGS=\\\"-v /home/tester/.cache/torchinductor:/tmp/torchinductor_root -v /home/tester/.cache/nv/ComputeCache:/root/.nv/ComputeCache -e TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_root -e CUDA_CACHE_PATH=/root/.nv/ComputeCache -e TRITON_CACHE_DIR=/root/.triton/cache\\\" exec /tmp/run-recipe.sh sample --solo --port 6001\""'`
+	conf := config.Config{
+		Macros: config.MacroList{
+			{Name: "user_home", Value: "/home/tester"},
+		},
+		Models: map[string]config.ModelConfig{
+			"model-vllm": {
+				Cmd: original,
+				Metadata: map[string]any{
+					recipeMetadataKey: map[string]any{
+						"backend_dir": "/opt/spark-vllm-docker",
+						"mode":        "solo",
+						"nodes":       "192.0.2.10",
+					},
+				},
+			},
+		},
+	}
+
+	got := normalizeLegacyVLLMConfigCommands(conf)
+	cmd := got.Models["model-vllm"].Cmd
+	if cmd != original {
+		t.Fatalf("remote escaped assignment should remain unchanged\nwant: %s\ngot:  %s", original, cmd)
+	}
+	if strings.Count(cmd, "-v /home/tester/.cache/torchinductor:/tmp/torchinductor_root") != 1 {
+		t.Fatalf("expected runtime cache mount once, got cmd: %s", cmd)
 	}
 
 	args, err := config.SanitizeCommand(cmd)
@@ -922,16 +1096,24 @@ func TestProxyManager_UpsertRecipeModel_VLLMIncludesRuntimeCacheArgs(t *testing.
 	}
 
 	cmd, recipeMeta := readRecipeModelCommandAndMeta(t, cfgPath, "runtime-vllm-model")
+	if !strings.Contains(cmd, `VLLM_SPARK_EXTRA_DOCKER_ARGS="${vllm_extra_docker_args}"`) {
+		t.Fatalf("expected macro-based runtime cache assignment, got: %s", cmd)
+	}
+	if !strings.Contains(cmd, "${recipe_runner}") {
+		t.Fatalf("expected recipe runner macro, got: %s", cmd)
+	}
+
+	loadedCmd, _ := readLoadedModelCommands(t, cfgPath, "runtime-vllm-model")
 	for _, item := range []string{
 		"VLLM_SPARK_EXTRA_DOCKER_ARGS=",
-		"-v ${user_home}/.cache/torchinductor:/tmp/torchinductor_root",
-		"-v ${user_home}/.cache/nv/ComputeCache:/root/.nv/ComputeCache",
+		"-v /home/tester/.cache/torchinductor:/tmp/torchinductor_root",
+		"-v /home/tester/.cache/nv/ComputeCache:/root/.nv/ComputeCache",
 		"-e TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor_root",
 		"-e CUDA_CACHE_PATH=/root/.nv/ComputeCache",
 		"-e TRITON_CACHE_DIR=/root/.triton/cache",
 	} {
-		if !strings.Contains(cmd, item) {
-			t.Fatalf("cmd missing runtime cache item %q: %s", item, cmd)
+		if !strings.Contains(loadedCmd, item) {
+			t.Fatalf("loaded cmd missing runtime cache item %q: %s", item, loadedCmd)
 		}
 	}
 
@@ -982,14 +1164,19 @@ func TestProxyManager_UpsertRecipeModel_VLLMSingleNodeInjectsRuntimeCacheArgsRem
 	if !strings.Contains(cmd, "exec ssh -o BatchMode=yes") {
 		t.Fatalf("expected single-node ssh command, got: %s", cmd)
 	}
-	if !strings.Contains(cmd, `\"VLLM_SPARK_EXTRA_DOCKER_ARGS=`) {
-		t.Fatalf("expected runtime cache assignment in remote command, got: %s", cmd)
+	if !strings.Contains(cmd, "VLLM_SPARK_EXTRA_DOCKER_ARGS=${vllm_extra_docker_args_escaped}") {
+		t.Fatalf("expected macro-based remote runtime cache assignment, got: %s", cmd)
 	}
-	if strings.Contains(cmd, `VLLM_SPARK_EXTRA_DOCKER_ARGS='`) {
+	if strings.Contains(cmd, "VLLM_SPARK_EXTRA_DOCKER_ARGS='") {
 		t.Fatalf("remote runtime cache assignment must avoid single quotes: %s", cmd)
 	}
 	if strings.Contains(cmd, "bash -lc 'VLLM_SPARK_EXTRA_DOCKER_ARGS=") {
 		t.Fatalf("runtime cache assignment should not be injected only in local shell: %s", cmd)
+	}
+
+	loadedCmd, _ := readLoadedModelCommands(t, cfgPath, "runtime-vllm-node-model")
+	if !strings.Contains(loadedCmd, `VLLM_SPARK_EXTRA_DOCKER_ARGS=\\\"-v /home/tester/.cache/torchinductor`) {
+		t.Fatalf("expected escaped runtime cache assignment in loaded remote command, got: %s", loadedCmd)
 	}
 }
 
@@ -1054,14 +1241,27 @@ func TestProxyManager_UpsertRecipeModel_VLLMClusterCmdUsesConditionalReset(t *te
 	}
 
 	cmd, _ := readRecipeModelCommandAndMeta(t, cfgPath, "runtime-vllm-cluster-reset-model")
-	if !strings.Contains(cmd, `if docker ps --format "{{.Names}}" | grep -q "^vllm_node$"; then`) {
-		t.Fatalf("expected conditional cluster reset probe, got: %s", cmd)
+	if !strings.Contains(cmd, "${vllm_cluster_reset_") {
+		t.Fatalf("expected cluster reset macro usage in raw cmd, got: %s", cmd)
 	}
-	if !strings.Contains(cmd, "if ! docker exec vllm_node ray status >/dev/null 2>&1; then") {
-		t.Fatalf("expected cluster health guard before stop, got: %s", cmd)
+
+	loadedCmd, _ := readLoadedModelCommands(t, cfgPath, "runtime-vllm-cluster-reset-model")
+	if !strings.Contains(cmd, `if docker ps --format "{{.Names}}" | grep -q "^vllm_node$"`) {
+		if !strings.Contains(loadedCmd, `if docker ps --format "{{.Names}}" | grep -q "^vllm_node$"`) {
+			t.Fatalf("expected conditional cluster reset probe, got raw=%s loaded=%s", cmd, loadedCmd)
+		}
 	}
-	if strings.Contains(cmd, "bash -lc '(cd ") {
-		t.Fatalf("unexpected unconditional reset prefix in cmd: %s", cmd)
+	if !regexp.MustCompile(`grep -q "\^vllm_node\$"\s*;?\s*then`).MatchString(loadedCmd) {
+		t.Fatalf("expected conditional cluster reset probe, got: %s", loadedCmd)
+	}
+	if !strings.Contains(loadedCmd, "if ! docker exec vllm_node ray status >/dev/null 2>&1") {
+		t.Fatalf("expected cluster health guard before stop, got: %s", loadedCmd)
+	}
+	if !regexp.MustCompile(`ray status >/dev/null 2>&1\s*;?\s*then`).MatchString(loadedCmd) {
+		t.Fatalf("expected cluster health guard before stop, got: %s", loadedCmd)
+	}
+	if strings.Contains(loadedCmd, "bash -lc '(cd ") {
+		t.Fatalf("unexpected unconditional reset prefix in cmd: %s", loadedCmd)
 	}
 }
 
@@ -1088,7 +1288,12 @@ func TestProxyManager_UpsertRecipeModel_VLLMSingleNodeCmdStopHasValidShellQuotin
 	if !ok {
 		t.Fatalf("model not found in config")
 	}
-	cmdStop := strings.TrimSpace(getString(modelMap, "cmdStop"))
+	rawCmdStop := strings.TrimSpace(getString(modelMap, "cmdStop"))
+	if !strings.Contains(rawCmdStop, "${vllm_cmdstop_remote_") {
+		t.Fatalf("expected macro-based remote cmdStop, got: %s", rawCmdStop)
+	}
+
+	_, cmdStop := readLoadedModelCommands(t, cfgPath, "runtime-vllm-stop-model")
 	if cmdStop == "" {
 		t.Fatalf("cmdStop is empty")
 	}
@@ -1105,6 +1310,572 @@ func TestProxyManager_UpsertRecipeModel_VLLMSingleNodeCmdStopHasValidShellQuotin
 	out, err := check.CombinedOutput()
 	if err != nil {
 		t.Fatalf("cmdStop has invalid shell quoting: %v\ncmdStop=%s\nout=%s", err, cmdStop, strings.TrimSpace(string(out)))
+	}
+}
+
+func TestProxyManager_UpsertRecipeModel_VLLMLifecycleCreateEditDeleteKeepsConfigClean(t *testing.T) {
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-vllm-lifecycle", "vllm")
+	modelID := "runtime-vllm-lifecycle-model"
+
+	_, err := pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+		ModelID:        modelID,
+		RecipeRef:      "runtime-vllm-lifecycle",
+		Mode:           "cluster",
+		TensorParallel: 2,
+		Nodes:          "192.0.2.10,192.0.2.11",
+		NonPrivileged:  true,
+	})
+	if err != nil {
+		t.Fatalf("upsertRecipeModel(create) error: %v", err)
+	}
+
+	rawCmd, rawMeta := readRecipeModelCommandAndMeta(t, cfgPath, modelID)
+	if !strings.Contains(rawCmd, "${vllm_cluster_reset_") {
+		t.Fatalf("expected cluster reset macro in create cmd, got: %s", rawCmd)
+	}
+	if !strings.Contains(rawCmd, `VLLM_SPARK_EXTRA_DOCKER_ARGS="${vllm_extra_docker_args}"`) {
+		t.Fatalf("expected runtime cache macro in create cmd, got: %s", rawCmd)
+	}
+	if !strings.Contains(rawCmd, "--non-privileged") {
+		t.Fatalf("expected --non-privileged in create cmd, got: %s", rawCmd)
+	}
+	if got := strings.TrimSpace(getString(rawMeta, "mode")); got != "cluster" {
+		t.Fatalf("create mode = %q, want cluster", got)
+	}
+	if !getBool(rawMeta, "non_privileged") {
+		t.Fatalf("create non_privileged = false, want true")
+	}
+
+	root, err := loadConfigRawMap(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfigRawMap(create): %v", err)
+	}
+	rawModel := getMap(getMap(root, "models"), modelID)
+	rawCmdStop := strings.TrimSpace(getString(rawModel, "cmdStop"))
+	if !strings.Contains(rawCmdStop, "${vllm_cmdstop_") {
+		t.Fatalf("expected macro-based create cmdStop, got: %s", rawCmdStop)
+	}
+
+	loadedCmd, loadedCmdStop := readLoadedModelCommands(t, cfgPath, modelID)
+	if !strings.Contains(loadedCmd, "--tp 2") {
+		t.Fatalf("expected --tp 2 in loaded create cmd, got: %s", loadedCmd)
+	}
+	if !strings.Contains(loadedCmd, "--non-privileged") {
+		t.Fatalf("expected --non-privileged in loaded create cmd, got: %s", loadedCmd)
+	}
+	assertBashLCShellValid(t, loadedCmd, "create cmd")
+	assertBashLCShellValid(t, loadedCmdStop, "create cmdStop")
+
+	_, err = pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+		ModelID:        modelID,
+		RecipeRef:      "runtime-vllm-lifecycle",
+		Mode:           "cluster",
+		TensorParallel: 1,
+		Nodes:          "192.0.2.10",
+		NonPrivileged:  false,
+	})
+	if err != nil {
+		t.Fatalf("upsertRecipeModel(update) error: %v", err)
+	}
+
+	rawCmd, rawMeta = readRecipeModelCommandAndMeta(t, cfgPath, modelID)
+	if !strings.Contains(rawCmd, "exec ssh -o BatchMode=yes") {
+		t.Fatalf("expected remote single-node cmd after update, got: %s", rawCmd)
+	}
+	if !strings.Contains(rawCmd, "VLLM_SPARK_EXTRA_DOCKER_ARGS=${vllm_extra_docker_args_escaped}") {
+		t.Fatalf("expected escaped runtime cache macro in update cmd, got: %s", rawCmd)
+	}
+	if strings.Contains(rawCmd, "--non-privileged") {
+		t.Fatalf("expected update cmd without --non-privileged, got: %s", rawCmd)
+	}
+	if got := strings.TrimSpace(getString(rawMeta, "mode")); got != "solo" {
+		t.Fatalf("update mode = %q, want solo", got)
+	}
+	if got := strings.TrimSpace(getString(rawMeta, "nodes")); got != "192.0.2.10" {
+		t.Fatalf("update nodes = %q, want 192.0.2.10", got)
+	}
+	if getBool(rawMeta, "non_privileged") {
+		t.Fatalf("update non_privileged = true, want false")
+	}
+
+	root, err = loadConfigRawMap(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfigRawMap(update): %v", err)
+	}
+	rawModel = getMap(getMap(root, "models"), modelID)
+	rawCmdStop = strings.TrimSpace(getString(rawModel, "cmdStop"))
+	if !strings.Contains(rawCmdStop, "${vllm_cmdstop_remote_") {
+		t.Fatalf("expected macro-based remote cmdStop after update, got: %s", rawCmdStop)
+	}
+
+	loadedCmd, loadedCmdStop = readLoadedModelCommands(t, cfgPath, modelID)
+	if !strings.Contains(loadedCmd, " --solo") {
+		t.Fatalf("expected --solo in loaded update cmd, got: %s", loadedCmd)
+	}
+	if strings.Contains(loadedCmd, "--non-privileged") {
+		t.Fatalf("expected loaded update cmd without --non-privileged, got: %s", loadedCmd)
+	}
+	assertBashLCShellValid(t, loadedCmd, "update cmd")
+	assertBashLCShellValid(t, loadedCmdStop, "update cmdStop")
+
+	if _, err := pm.deleteRecipeModel(modelID); err != nil {
+		t.Fatalf("deleteRecipeModel() error: %v", err)
+	}
+
+	root, err = loadConfigRawMap(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfigRawMap(delete): %v", err)
+	}
+	if _, ok := getMap(root, "models")[modelID]; ok {
+		t.Fatalf("model %s should be deleted from models", modelID)
+	}
+	for groupName, raw := range getMap(root, "groups") {
+		group, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, member := range groupMembers(group) {
+			if member == modelID {
+				t.Fatalf("model %s still present in group %s after delete", modelID, groupName)
+			}
+		}
+	}
+
+	if _, err := config.LoadConfig(cfgPath); err != nil {
+		t.Fatalf("config should remain valid after delete: %v", err)
+	}
+}
+
+func TestRecipeModelAPI_LifecycleMaintainsDRYCommands(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-vllm-api", "vllm")
+	modelID := "runtime-vllm-api-model"
+	router := gin.New()
+	router.POST("/api/recipes/models", pm.apiUpsertRecipeModel)
+	router.DELETE("/api/recipes/models/:id", pm.apiDeleteRecipeModel)
+
+	createBody, err := json.Marshal(upsertRecipeModelRequest{
+		ModelID:        modelID,
+		RecipeRef:      "runtime-vllm-api",
+		Mode:           "cluster",
+		TensorParallel: 2,
+		Nodes:          "192.0.2.10,192.0.2.11",
+		NonPrivileged:  true,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(create): %v", err)
+	}
+	createReq := httptest.NewRequest(http.MethodPost, "/api/recipes/models", bytes.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createRec := httptest.NewRecorder()
+	router.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("create API status=%d body=%s", createRec.Code, createRec.Body.String())
+	}
+
+	rawCmd, rawMeta := readRecipeModelCommandAndMeta(t, cfgPath, modelID)
+	if !strings.Contains(rawCmd, "${vllm_cluster_reset_") {
+		t.Fatalf("expected create cmd to use cluster reset macro, got: %s", rawCmd)
+	}
+	if !strings.Contains(rawCmd, "--non-privileged") {
+		t.Fatalf("expected create cmd to include --non-privileged, got: %s", rawCmd)
+	}
+	if !getBool(rawMeta, "non_privileged") {
+		t.Fatalf("expected create metadata non_privileged=true")
+	}
+
+	updateBody, err := json.Marshal(upsertRecipeModelRequest{
+		ModelID:        modelID,
+		RecipeRef:      "runtime-vllm-api",
+		Mode:           "cluster",
+		TensorParallel: 1,
+		Nodes:          "192.0.2.10",
+		NonPrivileged:  false,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(update): %v", err)
+	}
+	updateReq := httptest.NewRequest(http.MethodPost, "/api/recipes/models", bytes.NewReader(updateBody))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateRec := httptest.NewRecorder()
+	router.ServeHTTP(updateRec, updateReq)
+	if updateRec.Code != http.StatusOK {
+		t.Fatalf("update API status=%d body=%s", updateRec.Code, updateRec.Body.String())
+	}
+
+	rawCmd, rawMeta = readRecipeModelCommandAndMeta(t, cfgPath, modelID)
+	if !strings.Contains(rawCmd, "exec ssh -o BatchMode=yes") {
+		t.Fatalf("expected update cmd to switch to remote single-node launch, got: %s", rawCmd)
+	}
+	if !strings.Contains(rawCmd, "VLLM_SPARK_EXTRA_DOCKER_ARGS=${vllm_extra_docker_args_escaped}") {
+		t.Fatalf("expected update cmd to use escaped runtime cache macro, got: %s", rawCmd)
+	}
+	if strings.Contains(rawCmd, "--non-privileged") {
+		t.Fatalf("expected update cmd without --non-privileged, got: %s", rawCmd)
+	}
+	if mode := strings.TrimSpace(getString(rawMeta, "mode")); mode != "solo" {
+		t.Fatalf("expected update metadata mode=solo, got %q", mode)
+	}
+	if nodes := strings.TrimSpace(getString(rawMeta, "nodes")); nodes != "192.0.2.10" {
+		t.Fatalf("expected update metadata nodes=192.0.2.10, got %q", nodes)
+	}
+
+	loadedCmd, loadedCmdStop := readLoadedModelCommands(t, cfgPath, modelID)
+	if !strings.Contains(loadedCmd, " --solo") {
+		t.Fatalf("expected loaded update cmd to include --solo, got: %s", loadedCmd)
+	}
+	assertBashLCShellValid(t, loadedCmd, "api update cmd")
+	assertBashLCShellValid(t, loadedCmdStop, "api update cmdStop")
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/recipes/models/"+modelID, nil)
+	deleteRec := httptest.NewRecorder()
+	router.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("delete API status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	root, err := loadConfigRawMap(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfigRawMap(delete): %v", err)
+	}
+	if _, ok := getMap(root, "models")[modelID]; ok {
+		t.Fatalf("model %s should be deleted by API", modelID)
+	}
+}
+
+func TestRecipeSourceAPI_SaveDoesNotRewriteConfig(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-save-no-config", "vllm")
+	modelID := "runtime-save-no-config-model"
+	if _, err := pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+		ModelID:        modelID,
+		RecipeRef:      "runtime-save-no-config",
+		Mode:           "cluster",
+		TensorParallel: 1,
+		Nodes:          "192.0.2.10",
+	}); err != nil {
+		t.Fatalf("upsertRecipeModel() error: %v", err)
+	}
+
+	beforeConfig, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read config before save: %v", err)
+	}
+
+	router := gin.New()
+	router.PUT("/api/recipes/source", pm.apiSaveRecipeSource)
+	updatedRecipe := "" +
+		"name: Runtime Cache Recipe\n" +
+		"description: updated recipe\n" +
+		"model: test/model\n" +
+		"runtime: vllm\n" +
+		"backend: spark-vllm-docker\n" +
+		"defaults:\n" +
+		"  tensor_parallel: 2\n"
+	reqBody, err := json.Marshal(recipeSourceUpdateRequest{
+		RecipeRef: "runtime-save-no-config",
+		Content:   updatedRecipe,
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(): %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPut, "/api/recipes/source", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save recipe API status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	afterConfig, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read config after save: %v", err)
+	}
+	if string(afterConfig) != string(beforeConfig) {
+		t.Fatalf("config.yaml changed after recipe save\nbefore:\n%s\nafter:\n%s", string(beforeConfig), string(afterConfig))
+	}
+}
+
+func TestRecipeModelAPI_DeleteCascadePurgesSharedRecipeModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-delete-cascade", "vllm")
+	modelA := "runtime-delete-cascade-a"
+	modelB := "runtime-delete-cascade-b"
+	for _, modelID := range []string{modelA, modelB} {
+		if _, err := pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+			ModelID:        modelID,
+			RecipeRef:      "runtime-delete-cascade",
+			Mode:           "cluster",
+			TensorParallel: 1,
+			Nodes:          "192.0.2.10",
+		}); err != nil {
+			t.Fatalf("upsertRecipeModel(%s) error: %v", modelID, err)
+		}
+	}
+
+	recipePath := filepath.Join(filepath.Dir(cfgPath), "recipes", "runtime-delete-cascade.yaml")
+	if _, err := os.Stat(recipePath); err != nil {
+		t.Fatalf("expected recipe file to exist before delete: %v", err)
+	}
+
+	router := gin.New()
+	router.DELETE("/api/recipes/models/:id", pm.apiDeleteRecipeModel)
+	req := httptest.NewRequest(http.MethodDelete, "/api/recipes/models/"+modelA+"?cascadeRecipe=true", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete cascade status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp recipeDeleteModelResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v body=%s", err, rec.Body.String())
+	}
+	if !resp.CascadeRecipe {
+		t.Fatalf("expected cascadeRecipe=true response")
+	}
+	if len(resp.PurgedModelIDs) != 2 {
+		t.Fatalf("expected 2 purged models, got %v", resp.PurgedModelIDs)
+	}
+
+	root, err := loadConfigRawMap(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfigRawMap: %v", err)
+	}
+	models := getMap(root, "models")
+	if _, ok := models[modelA]; ok {
+		t.Fatalf("model %s should be purged", modelA)
+	}
+	if _, ok := models[modelB]; ok {
+		t.Fatalf("model %s should be purged", modelB)
+	}
+	if _, err := os.Stat(recipePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected recipe file to be deleted, stat err=%v", err)
+	}
+}
+
+func TestRecipeModelAPI_DeleteLegacyDoesNotCascade(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-delete-legacy", "vllm")
+	modelA := "runtime-delete-legacy-a"
+	modelB := "runtime-delete-legacy-b"
+	for _, modelID := range []string{modelA, modelB} {
+		if _, err := pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+			ModelID:        modelID,
+			RecipeRef:      "runtime-delete-legacy",
+			Mode:           "cluster",
+			TensorParallel: 1,
+			Nodes:          "192.0.2.10",
+		}); err != nil {
+			t.Fatalf("upsertRecipeModel(%s) error: %v", modelID, err)
+		}
+	}
+
+	recipePath := filepath.Join(filepath.Dir(cfgPath), "recipes", "runtime-delete-legacy.yaml")
+	router := gin.New()
+	router.DELETE("/api/recipes/models/:id", pm.apiDeleteRecipeModel)
+	req := httptest.NewRequest(http.MethodDelete, "/api/recipes/models/"+modelA, nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete legacy status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	root, err := loadConfigRawMap(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfigRawMap: %v", err)
+	}
+	models := getMap(root, "models")
+	if _, ok := models[modelA]; ok {
+		t.Fatalf("model %s should be removed", modelA)
+	}
+	if _, ok := models[modelB]; !ok {
+		t.Fatalf("model %s should remain", modelB)
+	}
+	if _, err := os.Stat(recipePath); err != nil {
+		t.Fatalf("recipe file should remain after legacy delete: %v", err)
+	}
+}
+
+func TestRecipeSourceAPI_DeleteWithPurgeManaged(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-delete-source", "vllm")
+	for _, modelID := range []string{"runtime-delete-source-a", "runtime-delete-source-b"} {
+		if _, err := pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+			ModelID:        modelID,
+			RecipeRef:      "runtime-delete-source",
+			Mode:           "cluster",
+			TensorParallel: 1,
+			Nodes:          "192.0.2.10",
+		}); err != nil {
+			t.Fatalf("upsertRecipeModel(%s) error: %v", modelID, err)
+		}
+	}
+
+	recipePath := filepath.Join(filepath.Dir(cfgPath), "recipes", "runtime-delete-source.yaml")
+	router := gin.New()
+	router.DELETE("/api/recipes/source", pm.apiDeleteRecipeSource)
+	req := httptest.NewRequest(http.MethodDelete, "/api/recipes/source?recipeRef=runtime-delete-source&purgeManaged=true", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete source status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp recipeDeleteSourceResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v body=%s", err, rec.Body.String())
+	}
+	if len(resp.PurgedModelIDs) != 2 {
+		t.Fatalf("expected 2 purged models, got %v", resp.PurgedModelIDs)
+	}
+
+	root, err := loadConfigRawMap(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfigRawMap: %v", err)
+	}
+	if got := len(getMap(root, "models")); got != 0 {
+		t.Fatalf("expected no models after purge, got %d", got)
+	}
+	if _, err := os.Stat(recipePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected recipe file deleted, stat err=%v", err)
+	}
+}
+
+func TestRecipeSourceAPI_SyncDefaultsManualEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-sync-defaults-api", "vllm")
+	modelID := "runtime-sync-defaults-api-model"
+	if _, err := pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+		ModelID:        modelID,
+		RecipeRef:      "runtime-sync-defaults-api",
+		Mode:           "cluster",
+		TensorParallel: 1,
+		Nodes:          "192.0.2.10",
+	}); err != nil {
+		t.Fatalf("upsertRecipeModel() error: %v", err)
+	}
+
+	recipePath := filepath.Join(filepath.Dir(cfgPath), "recipes", "runtime-sync-defaults-api.yaml")
+	recipeBody := "" +
+		"name: Runtime Cache Recipe\n" +
+		"description: test recipe\n" +
+		"model: test/model\n" +
+		"runtime: vllm\n" +
+		"backend: spark-vllm-docker\n" +
+		"defaults:\n" +
+		"  tensor_parallel: 2\n"
+	if err := os.WriteFile(recipePath, []byte(recipeBody), 0o644); err != nil {
+		t.Fatalf("write recipe file: %v", err)
+	}
+
+	router := gin.New()
+	router.POST("/api/recipes/source/sync-defaults", pm.apiSyncRecipeSourceDefaults)
+	body, err := json.Marshal(recipeSourceSyncDefaultsRequest{RecipeRef: "runtime-sync-defaults-api"})
+	if err != nil {
+		t.Fatalf("json.Marshal(): %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/recipes/source/sync-defaults", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sync defaults status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp recipeSourceSyncDefaultsResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v body=%s", err, rec.Body.String())
+	}
+	if len(resp.UpdatedModelIDs) != 1 || resp.UpdatedModelIDs[0] != modelID {
+		t.Fatalf("unexpected updatedModelIds: %v", resp.UpdatedModelIDs)
+	}
+
+	_, recipeMeta := readRecipeModelCommandAndMeta(t, cfgPath, modelID)
+	if got := intFromAny(recipeMeta["tensor_parallel"]); got != 2 {
+		t.Fatalf("tensor_parallel = %d, want 2", got)
+	}
+}
+
+func TestProxyManager_UpsertRecipeModel_VLLMClusterWithMultilineResetMacroRemainsShellValid(t *testing.T) {
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-vllm-multiline-reset", "vllm")
+
+	root, err := loadConfigRawMap(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfigRawMap: %v", err)
+	}
+	macros := getMap(root, "macros")
+	macros["vllm_cluster_reset_latest"] = strings.Join([]string{
+		`if docker ps --format "{{.Names}}" | grep -q "^vllm_node$"`,
+		"then",
+		`  if ! docker exec vllm_node ray status >/dev/null 2>&1`,
+		"  then",
+		`    (cd /tmp/backend && ./launch-cluster.sh -t vllm-node:latest stop >/dev/null 2>&1 || true)`,
+		"  fi",
+		"fi",
+	}, "\n")
+	root["macros"] = macros
+	if err := writeConfigRawMap(cfgPath, root); err != nil {
+		t.Fatalf("writeConfigRawMap: %v", err)
+	}
+
+	_, err = pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+		ModelID:        "runtime-vllm-multiline-reset-model",
+		RecipeRef:      "runtime-vllm-multiline-reset",
+		Mode:           "cluster",
+		TensorParallel: 2,
+		Nodes:          "192.0.2.10,192.0.2.11",
+	})
+	if err != nil {
+		t.Fatalf("upsertRecipeModel() error: %v", err)
+	}
+
+	loadedCmd, _ := readLoadedModelCommands(t, cfgPath, "runtime-vllm-multiline-reset-model")
+	if strings.Contains(loadedCmd, "fi VLLM_SPARK_EXTRA_DOCKER_ARGS=") {
+		t.Fatalf("cluster macro separator missing, got invalid command: %s", loadedCmd)
+	}
+	assertBashLCShellValid(t, loadedCmd, "cluster cmd with multiline reset macro")
+}
+
+func TestProxyManager_UpsertRecipeModel_RejectsInvalidBashMacroPayload(t *testing.T) {
+	pm, cfgPath := newRuntimeCacheTestProxyManager(t, "spark-vllm-docker", "runtime-vllm-invalid-macro", "vllm")
+
+	root, err := loadConfigRawMap(cfgPath)
+	if err != nil {
+		t.Fatalf("loadConfigRawMap: %v", err)
+	}
+	macros := getMap(root, "macros")
+	macros["vllm_cluster_reset_latest"] = strings.Join([]string{
+		`if docker ps --format "{{.Names}}" | grep -q "^vllm_node$"`,
+		"then",
+		`  if ! docker exec vllm_node ray status >/dev/null 2>&1`,
+		"  then",
+		`    echo bad`,
+		// Intentionally missing terminating "fi" to break syntax.
+	}, "\n")
+	root["macros"] = macros
+	if err := writeConfigRawMap(cfgPath, root); err != nil {
+		t.Fatalf("writeConfigRawMap: %v", err)
+	}
+
+	_, err = pm.upsertRecipeModel(context.Background(), upsertRecipeModelRequest{
+		ModelID:        "runtime-vllm-invalid-macro-model",
+		RecipeRef:      "runtime-vllm-invalid-macro",
+		Mode:           "cluster",
+		TensorParallel: 2,
+		Nodes:          "192.0.2.10,192.0.2.11",
+	})
+	if err == nil {
+		t.Fatalf("expected upsert to fail with invalid bash payload")
+	}
+	if !strings.Contains(err.Error(), "invalid bash -lc payload") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -1179,4 +1950,35 @@ func readRecipeModelCommandAndMeta(t *testing.T, cfgPath, modelID string) (strin
 	meta := getMap(modelMap, "metadata")
 	recipeMeta := getMap(meta, recipeMetadataKey)
 	return cmd, recipeMeta
+}
+
+func readLoadedModelCommands(t *testing.T, cfgPath, modelID string) (string, string) {
+	t.Helper()
+
+	conf, err := config.LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("LoadConfig(%s): %v", cfgPath, err)
+	}
+	modelCfg, _, ok := conf.FindConfig(modelID)
+	if !ok {
+		t.Fatalf("model %s not found after LoadConfig", modelID)
+	}
+	return strings.TrimSpace(modelCfg.Cmd), strings.TrimSpace(modelCfg.CmdStop)
+}
+
+func assertBashLCShellValid(t *testing.T, cmd string, label string) {
+	t.Helper()
+	args, err := config.SanitizeCommand(cmd)
+	if err != nil {
+		t.Fatalf("%s SanitizeCommand: %v\ncmd=%s", label, err, cmd)
+	}
+	if len(args) < 3 || args[0] != "bash" || args[1] != "-lc" {
+		t.Fatalf("%s unexpected command args: %#v\ncmd=%s", label, args, cmd)
+	}
+
+	check := exec.Command("bash", "-n", "-c", args[2])
+	out, err := check.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s has invalid shell quoting: %v\ncmd=%s\nout=%s", label, err, cmd, strings.TrimSpace(string(out)))
+	}
 }

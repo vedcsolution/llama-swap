@@ -205,6 +205,26 @@ Intelligence plugin source:
 - Secrets should be passed via environment variables and macros (for example `${env.HF_TOKEN}`, `${env.OPENROUTER_API_KEY}`).
 - Avoid committing local `config.yaml` values that include private hostnames, tokens, or internal topology details.
 
+## Marlin-sm12x Image Build Helper
+
+This fork includes:
+
+- `scripts/build-vllm-marlin-sm12x.sh`
+
+It builds a custom `vllm-node-marlin-sm12x` image and can optionally copy it to nodes.
+
+Example:
+
+```bash
+./scripts/build-vllm-marlin-sm12x.sh \
+  --tag vllm-node-marlin-sm12x \
+  --nodes "${VLLM_NODES}"
+```
+
+By default, it resolves backend path from:
+
+- `SPARK_VLLM_DOCKER_DIR`
+- fallback: `../spark-vllm-docker`
 ## NVMe-oF Canary Toolkit
 
 This fork includes starter scripts to harden NVMe-oF initiator connectivity and network tuning without changing current model paths:

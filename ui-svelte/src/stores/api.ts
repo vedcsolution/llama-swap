@@ -20,6 +20,9 @@ import type {
   RecipeUIState,
   RecipeUpsertRequest,
   RecipeSourceState,
+  RecipeDeleteModelResponse,
+  RecipeDeleteSourceResponse,
+  RecipeSourceSyncDefaultsResponse,
   ConfigEditorState,
   ClusterStatusState,
   ClusterDGXUpdateResponse,
@@ -445,15 +448,21 @@ export async function upsertRecipeModel(payload: RecipeUpsertRequest): Promise<R
   return (await response.json()) as RecipeUIState;
 }
 
-export async function deleteRecipeModel(modelId: string): Promise<RecipeUIState> {
-  const response = await fetch(`/api/recipes/models/${encodeURIComponent(modelId)}`, {
+export function deleteRecipeModel(modelId: string): Promise<RecipeUIState>;
+export function deleteRecipeModel(modelId: string, cascadeRecipe: true): Promise<RecipeDeleteModelResponse>;
+export async function deleteRecipeModel(
+  modelId: string,
+  cascadeRecipe = false,
+): Promise<RecipeUIState | RecipeDeleteModelResponse> {
+  const query = cascadeRecipe ? "?cascadeRecipe=true" : "";
+  const response = await fetch(`/api/recipes/models/${encodeURIComponent(modelId)}${query}`, {
     method: "DELETE",
   });
   if (!response.ok) {
     const msg = await response.text().catch(() => "");
     throw new Error(msg || `Failed to delete recipe model: ${response.status}`);
   }
-  return (await response.json()) as RecipeUIState;
+  return (await response.json()) as RecipeUIState | RecipeDeleteModelResponse;
 }
 
 export async function getRecipeSourceState(recipeRef: string, signal?: AbortSignal): Promise<RecipeSourceState> {
@@ -497,6 +506,39 @@ export async function createRecipeSource(
     throw new Error(msg || `Failed to create recipe source: ${response.status}`);
   }
   return (await response.json()) as RecipeSourceState;
+}
+
+export async function deleteRecipeSource(
+  recipeRef: string,
+  purgeManaged = false,
+): Promise<RecipeDeleteSourceResponse> {
+  const params = new URLSearchParams({ recipeRef });
+  if (purgeManaged) {
+    params.set("purgeManaged", "true");
+  }
+  const response = await fetch(`/api/recipes/source?${params.toString()}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to delete recipe source: ${response.status}`);
+  }
+  return (await response.json()) as RecipeDeleteSourceResponse;
+}
+
+export async function syncRecipeSourceDefaults(recipeRef: string): Promise<RecipeSourceSyncDefaultsResponse> {
+  const response = await fetch(`/api/recipes/source/sync-defaults`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ recipeRef }),
+  });
+  if (!response.ok) {
+    const msg = await response.text().catch(() => "");
+    throw new Error(msg || `Failed to sync recipe defaults: ${response.status}`);
+  }
+  return (await response.json()) as RecipeSourceSyncDefaultsResponse;
 }
 
 export async function getConfigEditorState(signal?: AbortSignal): Promise<ConfigEditorState> {

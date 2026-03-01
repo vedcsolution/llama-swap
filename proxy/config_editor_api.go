@@ -45,6 +45,13 @@ func (pm *ProxyManager) apiSaveConfigEditor(c *gin.Context) {
 		})
 		return
 	}
+	normalizedConfig := normalizeLegacyVLLMConfigCommands(parsedConfig)
+	if err := validateConfigModelShellCommands(normalizedConfig); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("invalid config: %v", err),
+		})
+		return
+	}
 
 	configPath, err := pm.getConfigPath()
 	if err != nil {
@@ -59,7 +66,7 @@ func (pm *ProxyManager) apiSaveConfigEditor(c *gin.Context) {
 		return
 	}
 
-	pm.applyConfigAndSyncProcessGroups(normalizeLegacyVLLMConfigCommands(parsedConfig))
+	pm.applyConfigAndSyncProcessGroups(normalizedConfig)
 
 	// Notify UI subscribers that config-backed model state changed.
 	event.Emit(ConfigFileChangedEvent{ReloadingState: ReloadingStateEnd})

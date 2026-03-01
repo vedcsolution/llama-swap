@@ -10,8 +10,10 @@
     cancelBenchyJob,
     getRecipeSourceState,
     saveRecipeSourceContent,
+    syncRecipeSourceDefaults,
     createRecipeSource,
     getRecipeUIState,
+    getRecipeBackendState,
     upsertRecipeModel,
     deleteRecipeModel,
     getClusterStatus,
@@ -45,6 +47,7 @@
   let recipeEditorUpdatedAt = $state("");
   let recipeEditorLoading = $state(false);
   let recipeEditorSaving = $state(false);
+  let recipeEditorSyncingDefaults = $state(false);
   let recipeEditorError: string | null = $state(null);
   let recipeEditorNotice: string | null = $state(null);
   let recipeEditorController: AbortController | null = null;
@@ -56,10 +59,14 @@
   let codeMirrorModulesPromise: Promise<CodeMirrorModules> | null = null;
   let recipeEditorInitToken = 0;
   let recipeModelsById = $state<Record<string, RecipeManagedModel>>({});
+  let recipeBackendKind = $state("");
+  let recipeBackendDir = $state("");
   let clusterNodes = $state<string[]>([]);
   let clusterNodesController: AbortController | null = null;
   let selectedInferenceNodeByModel = $state<Record<string, string>>({});
+  let selectedNonPrivilegedByModel = $state<Record<string, boolean>>({});
   let nodeApplyBusyByModel = $state<Record<string, boolean>>({});
+  let nonPrivilegedApplyBusyByModel = $state<Record<string, boolean>>({});
   let recipeDeleteBusyByModel = $state<Record<string, boolean>>({});
   let recipeDeleteConfirmModelId = $state<string | null>(null);
   let addRecipeOpen = $state(false);
@@ -76,6 +83,7 @@
   let addRecipeNodes = $state("");
   let addRecipeContainerImage = $state("vllm-node:latest");
   let addRecipeExtraArgs = $state("");
+  let addRecipeNonPrivileged = $state(false);
   let addRecipeUnlisted = $state(false);
   let addRecipeYAML = $state("");
   const showUnlistedStore = persistentStore<boolean>("showUnlisted", true);
@@ -129,6 +137,13 @@
   function setInferenceNodeSelection(modelID: string, value: string): void {
     selectedInferenceNodeByModel = {
       ...selectedInferenceNodeByModel,
+      [modelID]: value,
+    };
+  }
+
+  function setNonPrivilegedSelection(modelID: string, value: boolean): void {
+    selectedNonPrivilegedByModel = {
+      ...selectedNonPrivilegedByModel,
       [modelID]: value,
     };
   }
@@ -231,6 +246,7 @@
     addRecipeNodes = "";
     addRecipeContainerImage = "vllm-node:latest";
     addRecipeExtraArgs = "";
+    addRecipeNonPrivileged = false;
     addRecipeUnlisted = false;
     addRecipeYAML = buildAddRecipeTemplate();
   }
@@ -308,6 +324,7 @@
         extraArgs: (addRecipeExtraArgs || "").trim(),
         containerImage: (addRecipeContainerImage || "").trim(),
         group: "managed-recipes",
+        nonPrivileged: !!addRecipeNonPrivileged,
         unlisted: !!addRecipeUnlisted,
       };
 
@@ -328,24 +345,39 @@
   }
 
   async function refreshRecipeRuntimeState(): Promise<void> {
-    const recipeResult = await Promise.allSettled([getRecipeUIState()]);
+    const recipeResult = await Promise.allSettled([getRecipeUIState(), getRecipeBackendState()]);
 
     if (recipeResult[0].status === "fulfilled") {
       const byID: Record<string, RecipeManagedModel> = {};
       const selected: Record<string, string> = {};
+      const selectedNonPrivileged: Record<string, boolean> = {};
       const recipeModels = recipeResult[0].value.models || [];
+      recipeBackendDir = recipeResult[0].value.backendDir || "";
       for (const recipeModel of recipeModels) {
         byID[recipeModel.modelId] = recipeModel;
         selected[recipeModel.modelId] = selectNodeFromRecipe(recipeModel);
+        selectedNonPrivileged[recipeModel.modelId] = !!recipeModel.nonPrivileged;
       }
       recipeModelsById = byID;
       selectedInferenceNodeByModel = selected;
+      selectedNonPrivilegedByModel = selectedNonPrivileged;
       clusterNodes = collectRecipeNodes(recipeModels);
     } else {
       console.error("Failed to fetch recipe state", recipeResult[0].reason);
+      recipeBackendDir = "";
       recipeModelsById = {};
       selectedInferenceNodeByModel = {};
+      selectedNonPrivilegedByModel = {};
       clusterNodes = [];
+    }
+    if (recipeResult[1].status === "fulfilled") {
+      recipeBackendKind = recipeResult[1].value.backendKind || "";
+      recipeBackendDir = recipeResult[1].value.backendDir || recipeBackendDir;
+    } else {
+      recipeBackendKind = "";
+      if (recipeResult[0].status !== "fulfilled") {
+        recipeBackendDir = "";
+      }
     }
 
     void refreshClusterNodesInBackground();
@@ -381,12 +413,20 @@
     bulkActionNotice = null;
 
     try {
-      await deleteRecipeModel(modelID);
+      const result = await deleteRecipeModel(modelID, true);
       await refreshRecipeRuntimeState();
       if (recipeEditorModelId === modelID) {
         closeRecipeEditor();
       }
-      bulkActionNotice = `Recipe/model ${modelID} removed from config.yaml.`;
+      if ("cascadeRecipe" in result && result.cascadeRecipe) {
+        const purgedCount = result.purgedModelIds?.length || 0;
+        const deletedRef = result.deletedRecipeRef || model.recipeRef || "";
+        bulkActionNotice = deletedRef
+          ? `Recipe ${deletedRef} deleted. Purged ${purgedCount} managed model(s) from config.yaml.`
+          : `Recipe deleted. Purged ${purgedCount} managed model(s) from config.yaml.`;
+      } else {
+        bulkActionNotice = `Recipe/model ${modelID} removed from config.yaml.`;
+      }
     } catch (e) {
       bulkActionError = e instanceof Error ? e.message : String(e);
       bulkActionNotice = null;
@@ -437,7 +477,7 @@
         group: recipe.group || 'managed-recipes',
         unlisted: !!recipe.unlisted,
         hotSwap: !!recipe.hotSwap,
-        nonPrivileged: !!recipe.nonPrivileged,
+        nonPrivileged: !!selectedNonPrivilegedByModel[modelID],
         memLimitGb: recipe.memLimitGb || 0,
         memSwapLimitGb: recipe.memSwapLimitGb || 0,
         pidsLimit: recipe.pidsLimit || 0,
@@ -459,6 +499,66 @@
     } finally {
       nodeApplyBusyByModel = {
         ...nodeApplyBusyByModel,
+        [modelID]: false,
+      };
+    }
+  }
+
+  async function applyNonPrivilegedMode(model: Model): Promise<void> {
+    const recipe = recipeModelByID(model.id);
+    if (!recipe) {
+      bulkActionError = `No recipe metadata found for model ${model.id}`;
+      bulkActionNotice = null;
+      return;
+    }
+
+    const modelID = model.id;
+    const nonPrivileged = !!selectedNonPrivilegedByModel[modelID];
+
+    nonPrivilegedApplyBusyByModel = {
+      ...nonPrivilegedApplyBusyByModel,
+      [modelID]: true,
+    };
+    bulkActionError = null;
+    bulkActionNotice = null;
+
+    try {
+      const payload: any = {
+        modelId: recipe.modelId,
+        recipeRef: recipe.recipeRef,
+        name: recipe.name || "",
+        description: recipe.description || "",
+        aliases: recipe.aliases || [],
+        useModelName: recipe.useModelName || "",
+        mode: recipe.mode || "cluster",
+        tensorParallel: recipe.tensorParallel || 1,
+        nodes: recipe.nodes || "",
+        extraArgs: recipe.extraArgs || "",
+        containerImage: recipe.containerImage || "",
+        group: recipe.group || "managed-recipes",
+        unlisted: !!recipe.unlisted,
+        hotSwap: !!recipe.hotSwap,
+        nonPrivileged,
+        memLimitGb: recipe.memLimitGb || 0,
+        memSwapLimitGb: recipe.memSwapLimitGb || 0,
+        pidsLimit: recipe.pidsLimit || 0,
+        shmSizeGb: recipe.shmSizeGb || 0,
+      };
+      if (typeof recipe.benchyTrustRemoteCode === "boolean") {
+        payload.benchyTrustRemoteCode = recipe.benchyTrustRemoteCode;
+      }
+
+      await upsertRecipeModel(payload);
+      await refreshRecipeRuntimeState();
+      bulkActionNotice = nonPrivileged
+        ? `--non-privileged enabled for ${modelID}.`
+        : `--non-privileged disabled for ${modelID}.`;
+    } catch (e) {
+      bulkActionError = e instanceof Error ? e.message : String(e);
+      bulkActionNotice = null;
+    } finally {
+      nonPrivilegedApplyBusyByModel = {
+        ...nonPrivilegedApplyBusyByModel,
         [modelID]: false,
       };
     }
@@ -595,6 +695,7 @@ ${output}` : summary;
     recipeEditorUpdatedAt = "";
     recipeEditorLoading = false;
     recipeEditorSaving = false;
+    recipeEditorSyncingDefaults = false;
     recipeEditorError = null;
     recipeEditorNotice = null;
   }
@@ -614,6 +715,7 @@ ${output}` : summary;
     recipeEditorModelId = model.id;
     recipeEditorLoading = true;
     recipeEditorSaving = false;
+    recipeEditorSyncingDefaults = false;
     recipeEditorError = null;
     recipeEditorNotice = null;
     recipeEditorRef = "";
@@ -663,12 +765,32 @@ ${output}` : summary;
       recipeEditorContent = state.content || recipeEditorContent;
       recipeEditorOriginal = state.content || recipeEditorContent;
       recipeEditorUpdatedAt = state.updatedAt || "";
-      recipeEditorNotice = "Recipe YAML guardada correctamente.";
+      recipeEditorNotice = "Recipe YAML guardada. config.yaml no se modificó.";
       await refreshRecipeRuntimeState();
     } catch (e) {
       recipeEditorError = e instanceof Error ? e.message : String(e);
     } finally {
       recipeEditorSaving = false;
+    }
+  }
+
+  async function syncRecipeEditorDefaultsToConfig(): Promise<void> {
+    if (!recipeEditorRef || recipeEditorLoading || recipeEditorSaving || recipeEditorSyncingDefaults) return;
+
+    recipeEditorSyncingDefaults = true;
+    recipeEditorError = null;
+    recipeEditorNotice = null;
+    try {
+      const result = await syncRecipeSourceDefaults(recipeEditorRef);
+      const updatedCount = result.updatedModelIds?.length || 0;
+      recipeEditorNotice = updatedCount > 0
+        ? `Defaults sincronizados en config.yaml para ${updatedCount} modelo(s).`
+        : "No había modelos gestionados para sincronizar.";
+      await refreshRecipeRuntimeState();
+    } catch (e) {
+      recipeEditorError = e instanceof Error ? e.message : String(e);
+    } finally {
+      recipeEditorSyncingDefaults = false;
     }
   }
 
@@ -1060,7 +1182,7 @@ ${output}` : summary;
           <input class="input mt-1 w-full font-mono text-sm" bind:value={addRecipeContainerImage} placeholder="vllm-node:latest" />
         </label>
         <label class="text-xs text-txtsecondary">Nodes (cluster only)
-          <input class="input mt-1 w-full font-mono text-sm" bind:value={addRecipeNodes} placeholder="192.168.200.12,192.168.200.13" />
+          <input class="input mt-1 w-full font-mono text-sm" bind:value={addRecipeNodes} placeholder="node-a,node-b" />
         </label>
       </div>
 
@@ -1069,6 +1191,10 @@ ${output}` : summary;
       </label>
       <label class="text-xs text-txtsecondary block">Extra Args
         <input class="input mt-1 w-full font-mono text-sm" bind:value={addRecipeExtraArgs} placeholder="--gpu-memory-utilization 0.9" />
+      </label>
+      <label class="inline-flex items-center gap-2 text-sm text-txtsecondary">
+        <input type="checkbox" bind:checked={addRecipeNonPrivileged} />
+        --non-privileged (spark-vllm-docker)
       </label>
       <label class="inline-flex items-center gap-2 text-sm text-txtsecondary">
         <input type="checkbox" bind:checked={addRecipeUnlisted} />
@@ -1106,8 +1232,8 @@ ${output}` : summary;
               {model.containerImage || "-"}
               {#if recipeModelByID(model.id)}
                 {@const recipe = recipeModelByID(model.id)}
-                {#if recipe}
-                  <div class="mt-2 space-y-1">
+                    {#if recipe}
+                      <div class="mt-2 space-y-1">
                     {#if isClusterTensorParallel(recipe)}
                       <div class="text-[11px] text-txtsecondary">
                         Inference node: cluster TP {recipe.tensorParallel} (usa múltiples nodos)
@@ -1131,10 +1257,36 @@ ${output}` : summary;
                           {nodeApplyBusyByModel[model.id] ? "Saving..." : "Apply Node"}
                         </button>
                       </div>
+                        {/if}
+
+                        {#if (recipeBackendKind === "vllm" && recipeBackendDir.includes("spark-vllm-docker")) || (recipe.containerImage || model.containerImage || "").includes("vllm-node")}
+                          <div class="text-[11px] text-txtsecondary">Runtime mode</div>
+                          <div class="flex items-center gap-2">
+                            <label class="inline-flex items-center gap-2 text-[11px] text-txtsecondary">
+                              <input
+                                type="checkbox"
+                                checked={selectedNonPrivilegedByModel[model.id] ?? !!recipe.nonPrivileged}
+                                onchange={(event) =>
+                                  setNonPrivilegedSelection(
+                                    model.id,
+                                    (event.currentTarget as HTMLInputElement).checked
+                                  )}
+                                disabled={!!nonPrivilegedApplyBusyByModel[model.id]}
+                              />
+                              --non-privileged
+                            </label>
+                            <button
+                              class="btn btn--sm"
+                              onclick={() => applyNonPrivilegedMode(model)}
+                              disabled={!!nonPrivilegedApplyBusyByModel[model.id]}
+                            >
+                              {nonPrivilegedApplyBusyByModel[model.id] ? "Saving..." : "Apply"}
+                            </button>
+                          </div>
+                        {/if}
+                      </div>
                     {/if}
-                  </div>
-                {/if}
-              {/if}
+                  {/if}
             </td>
             <td class="w-auto">
               <div class="flex justify-end gap-2 items-center flex-wrap">
@@ -1165,8 +1317,8 @@ ${output}` : summary;
                 <button
                   class="btn btn--sm"
                   onclick={() => handleDeleteRecipe(model)}
-                  disabled={!!recipeDeleteBusyByModel[model.id] || (recipeEditorSaving && recipeEditorModelId === model.id)}
-                  title="Delete managed recipe/model from config.yaml"
+                  disabled={!!recipeDeleteBusyByModel[model.id] || ((recipeEditorSaving || recipeEditorSyncingDefaults) && recipeEditorModelId === model.id)}
+                  title="Delete recipe YAML and purge managed models from config.yaml"
                 >
                   {recipeDeleteBusyByModel[model.id] ? "Deleting..." : (recipeDeleteConfirmModelId === model.id ? "Confirm Delete" : "Delete Recipe")}
                 </button>
@@ -1192,11 +1344,14 @@ ${output}` : summary;
                       {/if}
                     </div>
                     <div class="flex gap-2">
-                      <button class="btn btn--sm" onclick={refreshRecipeEditor} disabled={recipeEditorLoading || recipeEditorSaving}>Refresh</button>
-                      <button class="btn btn--sm" onclick={saveRecipeEditor} disabled={recipeEditorLoading || recipeEditorSaving || !recipeEditorRef || recipeEditorContent === recipeEditorOriginal}>
+                      <button class="btn btn--sm" onclick={refreshRecipeEditor} disabled={recipeEditorLoading || recipeEditorSaving || recipeEditorSyncingDefaults}>Refresh</button>
+                      <button class="btn btn--sm" onclick={saveRecipeEditor} disabled={recipeEditorLoading || recipeEditorSaving || recipeEditorSyncingDefaults || !recipeEditorRef || recipeEditorContent === recipeEditorOriginal}>
                         {recipeEditorSaving ? "Saving..." : "Save"}
                       </button>
-                      <button class="btn btn--sm" onclick={closeRecipeEditor} disabled={recipeEditorSaving}>Close</button>
+                      <button class="btn btn--sm" onclick={syncRecipeEditorDefaultsToConfig} disabled={recipeEditorLoading || recipeEditorSaving || recipeEditorSyncingDefaults || !recipeEditorRef}>
+                        {recipeEditorSyncingDefaults ? "Syncing..." : "Sync defaults -> config"}
+                      </button>
+                      <button class="btn btn--sm" onclick={closeRecipeEditor} disabled={recipeEditorSaving || recipeEditorSyncingDefaults}>Close</button>
                     </div>
                   </div>
 

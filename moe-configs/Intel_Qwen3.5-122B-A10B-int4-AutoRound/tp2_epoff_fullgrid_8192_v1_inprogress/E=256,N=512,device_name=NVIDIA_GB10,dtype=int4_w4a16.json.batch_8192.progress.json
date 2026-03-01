@@ -1,0 +1,1520 @@
+{
+  "batch_size": 8192,
+  "results": {
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 201681.16760253906
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199309.765625
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199409.4647216797
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199528.28063964844
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 219317.07153320312
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 214110.52856445312
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 214404.31884765625
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 214708.16162109375
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 202467.6788330078
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200186.1993408203
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200362.60620117188
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200485.10803222656
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 220649.22973632812
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 215672.0166015625
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 216049.86938476562
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 216273.8720703125
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 203076.50756835938
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199160.04028320312
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199280.20874023438
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199380.53649902344
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 219382.11181640625
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 214232.626953125
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 214797.52807617188
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 215095.96801757812
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 203697.724609375
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200229.84313964844
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200347.79357910156
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199015.77270507812
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 220795.79467773438
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 215733.59130859375
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 216110.19653320312
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 216556.01440429688
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200018.79943847656
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 197022.70446777344
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 197421.40380859375
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 197767.6202392578
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 211850.48095703125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 216047.52075195312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 216112.27905273438
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 215153.68041992188
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199930.64392089844
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 196329.7332763672
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 196836.7041015625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 196981.59057617188
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 212214.39453125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 216216.005859375
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 216357.68188476562
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 215031.12182617188
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200649.96948242188
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 197108.70178222656
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 197489.25537109375
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 197797.30712890625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 212706.47094726562
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 216993.35815429688
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 217069.63623046875
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 215607.63793945312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199884.2822265625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 198049.53735351562
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 198500.78369140625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 198738.96545410156
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 214094.60815429688
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 218260.82641601562
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 218588.65356445312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 217145.14038085938
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 201826.11877441406
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199387.42248535156
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 202388.4002685547
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 202710.9893798828
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 228877.4169921875
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 218552.44384765625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 218936.7822265625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 221241.37451171875
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 202775.17456054688
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200245.70922851562
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 203532.9473876953
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 203860.45043945312
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 228971.77490234375
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 222362.37060546875
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 223012.74536132812
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 223538.96728515625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 202117.40295410156
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199591.259765625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 202809.76623535156
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 203192.3846435547
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 227900.1416015625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 221931.33911132812
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 222455.10131835938
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 224720.6884765625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 203010.63049316406
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200672.93518066406
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 203816.62109375
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 204238.84155273438
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 229856.36108398438
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 223570.84350585938
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 224118.84033203125
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":32,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 224845.19653320312
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 198385.92834472656
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199763.08715820312
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200249.80102539062
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199892.3651123047
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201972.31018066406
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201556.7498779297
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201696.99096679688
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201939.12719726562
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 198132.60314941406
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 201089.54711914062
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 201687.27478027344
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200428.2879638672
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201377.2576904297
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 200830.42846679688
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201082.900390625
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201223.91540527344
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 198449.13330078125
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200403.32092285156
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200735.2471923828
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 199761.20483398438
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 202113.96911621094
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201423.7127685547
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201770.70861816406
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 202038.00354003906
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 198314.60815429688
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 201793.9178466797
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 201847.0086669922
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 200895.51513671875
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201678.48693847656
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201023.68591308594
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201346.92321777344
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 201614.42932128906
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 196641.5264892578
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 192922.96813964844
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 196472.18872070312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 195512.44140625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 199833.66333007812
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 197328.5009765625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 198148.4552001953
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 198027.64282226562
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 195665.15197753906
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 193755.22521972656
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 197206.45935058594
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 196181.26586914062
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 199600.8856201172
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 198214.13024902344
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 199052.09106445312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 199140.93627929688
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 195202.81494140625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 193037.89184570312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 196595.79040527344
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 195583.5418701172
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 198889.9041748047
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 197783.29345703125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 198390.4278564453
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 198637.9803466797
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 195816.39404296875
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 193947.87353515625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 197252.3486328125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 196242.08618164062
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 199928.76098632812
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 198724.74487304688
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 199281.42578125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 199566.513671875
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 282239.6643066406
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 284019.9353027344
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 281977.39990234375
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 282315.9289550781
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 221547.59887695312
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 207820.66650390625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 208154.1748046875
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 207704.63989257812
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 287533.0126953125
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 288797.0910644531
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 284133.8098144531
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 284072.8552246094
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 213820.45166015625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 206512.54638671875
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 206909.01489257812
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 205842.44018554688
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 279806.904296875
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 280689.8303222656
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 281538.9318847656
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 281471.45751953125
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 212950.2099609375
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 205845.21606445312
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 206218.29467773438
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 205087.32788085938
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 287853.2971191406
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 289296.69189453125
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 283831.0241699219
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 283849.306640625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 215094.31274414062
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 206957.08251953125
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 207315.93383789062
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":64,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 206142.54516601562
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 138675.20629882812
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 127707.43591308594
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 126518.34350585938
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 127920.11901855469
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 195963.1378173828
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 206158.92333984375
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 197900.1629638672
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 206319.32983398438
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 139620.0128173828
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 129028.89526367188
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 127526.29516601562
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 129142.50549316406
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 196036.99584960938
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 200092.21252441406
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 198044.14123535156
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 200314.84924316406
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 139844.05395507812
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 128740.00854492186
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 127100.39367675781
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 128758.54431152345
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 195944.79431152344
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 200010.1141357422
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 198116.77612304688
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 200279.00756835938
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 139944.4140625
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 128877.08984375001
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 127404.7705078125
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 129033.51196289062
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 196002.8594970703
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 200163.81286621094
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 198119.02709960938
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 200453.90686035156
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 111827.39501953125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 113999.56359863281
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 112755.24169921875
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 113837.91687011719
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 195137.24853515625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 194651.0272216797
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 192920.8428955078
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 194098.5919189453
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 111597.98583984375
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 114245.70495605469
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 112977.09838867188
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 114179.47204589844
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 195072.93029785156
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 194647.9803466797
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 193164.31701660156
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 194346.87744140625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 111609.77905273438
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 114331.80236816406
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 112958.96118164062
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 114316.87561035156
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 195131.171875
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 194947.197265625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 193081.4727783203
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 194049.6710205078
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 111675.28076171875
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 114501.87866210938
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 112923.52478027344
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 114387.7001953125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 195144.20349121094
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 194684.49340820312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 193369.0283203125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 194620.71533203125
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 161925.66650390625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 162573.25317382812
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 160488.5235595703
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 163099.7723388672
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 307632.9504394531
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 309240.1037597656
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 308260.9069824219
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 309044.94140625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 160757.11364746094
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 163384.95178222656
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 161559.33044433594
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 163998.48510742188
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 305525.1501464844
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 309502.1862792969
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 310012.9455566406
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 309763.1640625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 160796.38305664062
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 163325.4766845703
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 161175.72509765625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 163925.00244140625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 309230.4724121094
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 312958.740234375
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 312644.65576171875
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 312685.8801269531
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 160639.2333984375
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 163166.7987060547
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 161159.07348632812
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 163726.5997314453
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 307876.3720703125
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 311424.7900390625
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 311750.0061035156
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":128,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 310943.71337890625
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 172532.37670898438
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 178999.599609375
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 177084.4598388672
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 179004.71923828125
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 151189.70581054688
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 138738.57482910156
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 136598.73779296875
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 138487.7313232422
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 175375.15380859375
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 179646.11450195312
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 177961.0986328125
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 179676.26220703125
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 151760.7861328125
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 139216.32690429688
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 137177.4560546875
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 138930.51635742188
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 175266.6290283203
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 179901.88232421875
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 177954.34631347656
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 179891.23779296875
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 151822.8076171875
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 139276.16271972656
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 137328.95385742188
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 138516.42822265625
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 175667.69409179688
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 179848.6993408203
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 178166.32080078125
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 180181.4324951172
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 152048.93493652344
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 139622.89978027344
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 137396.49353027344
+    },
+    "{\"BLOCK_SIZE_K\":64,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 138866.77978515625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 225903.49975585938
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 223580.72265625
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 225551.611328125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 224417.88330078125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 151163.6309814453
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 146336.4825439453
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 145306.19079589844
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 145677.9736328125
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 225387.96997070312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 223816.31591796875
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 225559.35302734375
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 224368.28491210938
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 151416.48010253906
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 147624.8321533203
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 146039.5294189453
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 146963.0889892578
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 225210.70190429688
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 223923.46435546875
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 225206.70043945312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 224485.732421875
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 151716.79626464844
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 147936.28356933594
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 145625.04028320312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 147266.1279296875
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 225529.08325195312
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 223727.49145507812
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 225294.482421875
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "ok",
+      "kernel_time": 224206.00952148438
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 151908.6297607422
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 148338.61206054688
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 146052.79174804688
+    },
+    "{\"BLOCK_SIZE_K\":128,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "ok",
+      "kernel_time": 147586.32690429688
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":1,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":16,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":32,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":4}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":2,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":3,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":4,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    },
+    "{\"BLOCK_SIZE_K\":256,\"BLOCK_SIZE_M\":16,\"BLOCK_SIZE_N\":256,\"GROUP_SIZE_M\":64,\"SPLIT_K\":1,\"num_stages\":5,\"num_warps\":8}": {
+      "status": "out_of_resources"
+    }
+  },
+  "best_config": {
+    "BLOCK_SIZE_M": 16,
+    "BLOCK_SIZE_N": 128,
+    "BLOCK_SIZE_K": 128,
+    "GROUP_SIZE_M": 16,
+    "num_warps": 4,
+    "num_stages": 2,
+    "SPLIT_K": 1
+  },
+  "best_time": 111597.98583984375,
+  "updated_at": "2026-02-28T20:38:18.492292"
+}

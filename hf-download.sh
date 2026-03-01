@@ -2,6 +2,8 @@
 set -euo pipefail
 
 HUB_PATH="${HF_HUB_PATH:-$HOME/.cache/huggingface/hub}"
+SSH_COMMON_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
+RSYNC_SSH_CMD="ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
 
 COPY_HOSTS=()
 SSH_USER="${USER:-}"
@@ -44,21 +46,113 @@ add_copy_hosts() {
     done
 }
 
+build_local_manifest() {
+    local dir="$1"
+    (
+        cd "$dir" &&
+        {
+            find . -type f -printf 'F|%P|%s\n'
+            find . -type l -printf 'L|%P|%l\n'
+        } | LC_ALL=C sort
+    )
+}
+
+build_remote_manifest() {
+    local host="$1"
+    local dir="$2"
+    ssh "${SSH_COMMON_OPTS[@]}" "${SSH_USER}@${host}" "cd \"$dir\" 2>/dev/null && { find . -type f -printf 'F|%P|%s\n'; find . -type l -printf 'L|%P|%l\n'; } | LC_ALL=C sort"
+}
+
+diagnose_remote_permissions() {
+    local host="$1"
+    local model_dir="$2"
+    local model_base remote_dir
+
+    model_base="$(basename "$model_dir")"
+    remote_dir="${HUB_PATH}/${model_base}"
+
+    echo "Ownership diagnostics on ${host} (first 20 mismatches):"
+    ssh "${SSH_COMMON_OPTS[@]}" "${SSH_USER}@${host}" \
+        "find \"$remote_dir\" \\( ! -user \"$SSH_USER\" -o ! -group \"$SSH_USER\" \\) -printf '%u:%g %p\n' 2>/dev/null | head -n 20" || true
+    echo "Suggested fix on ${host}: sudo chown -R ${SSH_USER}:${SSH_USER} \"$remote_dir\""
+}
+
+verify_remote_model_copy() {
+    local host="$1"
+    local model_dir="$2"
+    local model_base remote_dir local_manifest remote_manifest
+
+    model_base="$(basename "$model_dir")"
+    remote_dir="${HUB_PATH}/${model_base}"
+
+    if ! ssh "${SSH_COMMON_OPTS[@]}" "${SSH_USER}@${host}" "test -d \"$remote_dir\""; then
+        return 1
+    fi
+
+    local_manifest="$(mktemp)"
+    remote_manifest="$(mktemp)"
+
+    if ! build_local_manifest "$model_dir" >"$local_manifest"; then
+        rm -f "$local_manifest" "$remote_manifest"
+        return 1
+    fi
+    if ! build_remote_manifest "$host" "$remote_dir" >"$remote_manifest"; then
+        rm -f "$local_manifest" "$remote_manifest"
+        return 1
+    fi
+
+    if diff -q "$local_manifest" "$remote_manifest" >/dev/null 2>&1; then
+        rm -f "$local_manifest" "$remote_manifest"
+        return 0
+    fi
+
+    echo "Verification mismatch for $host (local vs remote manifest differ)."
+    diff -u "$local_manifest" "$remote_manifest" | sed -n '1,80p' || true
+    rm -f "$local_manifest" "$remote_manifest"
+    return 1
+}
+
 copy_model_to_host() {
     local host="$1"
     local model_name="$2"
     local model_dir="$3"
+    local model_base rsync_rc
 
     echo "Copying model '$model_name' to ${SSH_USER}@${host}..."
     local host_copy_start host_copy_end host_copy_time
     host_copy_start=$(date +%s)
+    model_base="$(basename "$model_dir")"
 
-    if rsync -av --progress "$model_dir" "${SSH_USER}@${host}:$HUB_PATH/"; then
+    if ! ssh "${SSH_COMMON_OPTS[@]}" "${SSH_USER}@${host}" "mkdir -p \"$HUB_PATH\""; then
+        echo "Copy to $host failed: could not create/access $HUB_PATH on remote host."
+        return 1
+    fi
+
+    set +e
+    rsync -a --partial --human-readable --info=progress2 --no-owner --no-group --no-perms --omit-dir-times --no-times \
+        --exclude '.no_exist/' \
+        -e "$RSYNC_SSH_CMD" \
+        "$model_dir/" "${SSH_USER}@${host}:$HUB_PATH/$model_base/"
+    rsync_rc=$?
+    set -e
+
+    if [[ "$rsync_rc" -eq 0 ]]; then
         host_copy_end=$(date +%s)
         host_copy_time=$((host_copy_end - host_copy_start))
         printf "Copy to %s completed in %02d:%02d:%02d\n" "$host" $((host_copy_time/3600)) $((host_copy_time%3600/60)) $((host_copy_time%60))
+    elif [[ "$rsync_rc" -eq 23 ]]; then
+        echo "Warning: rsync returned code 23 for $host. Verifying copied files..."
+        if verify_remote_model_copy "$host" "$model_dir"; then
+            host_copy_end=$(date +%s)
+            host_copy_time=$((host_copy_end - host_copy_start))
+            printf "Copy to %s verified in %02d:%02d:%02d (rsync code 23 tolerated)\n" "$host" $((host_copy_time/3600)) $((host_copy_time%3600/60)) $((host_copy_time%60))
+        else
+            diagnose_remote_permissions "$host" "$model_dir"
+            echo "Copy to $host failed: rsync code 23 and verification did not pass."
+            return 1
+        fi
     else
-        echo "Copy to $host failed."
+        echo "Copy to $host failed (rsync exit $rsync_rc)."
         return 1
     fi
 }

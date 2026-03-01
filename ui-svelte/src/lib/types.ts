@@ -193,6 +193,28 @@ export interface RecipeSourceState {
   content: string;
   updatedAt?: string;
 }
+
+export interface RecipeDeleteModelResponse {
+  deletedModelId: string;
+  cascadeRecipe: boolean;
+  deletedRecipeRef?: string;
+  deletedRecipePath?: string;
+  purgedModelIds: string[];
+  state: RecipeUIState;
+}
+
+export interface RecipeDeleteSourceResponse {
+  deletedRecipeRef: string;
+  deletedRecipePath: string;
+  purgedModelIds: string[];
+  state: RecipeUIState;
+}
+
+export interface RecipeSourceSyncDefaultsResponse {
+  recipeRef: string;
+  updatedModelIds: string[];
+  state: RecipeUIState;
+}
 export type RecipeBackendSource = "override" | "env" | "default";
 export type RecipeBackendKind = "vllm" | "sqlang" | "trtllm" | "nvidia" | "llamacpp" | "custom";
 
